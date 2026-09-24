@@ -80,6 +80,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     String type = '',
     List<String> tags = const [],
     Uri? url,
+    SourceSidebarAttention attention = SourceSidebarAttention.none,
   }) => SourceSidebarItem(
     id: id,
     title: title.isEmpty ? '(Sans objet)' : title,
@@ -89,8 +90,24 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     publishedAt: date ?? DateTime.fromMillisecondsSinceEpoch(0),
     sourceType: type,
     tags: tags,
+    attention: attention,
     canonicalExternalUrl: url,
   );
+
+  SourceSidebarAttention _campaignAttention(NewsletterCampaign campaign) {
+    final scheduledAt = campaign.scheduledAt;
+    if (campaign.status == NewsletterCampaignStatus.failed ||
+        campaign.status == NewsletterCampaignStatus.partiallyDelivered ||
+        campaign.status == NewsletterCampaignStatus.unknown ||
+        (scheduledAt != null &&
+            scheduledAt.isBefore(
+              DateTime.now().add(const Duration(days: 2)),
+            ))) {
+      return SourceSidebarAttention.needsReview;
+    }
+    return SourceSidebarAttention.none;
+  }
+
   void _put(SourceSidebarItem item, String section) {
     _items[item.id] = item;
     _sections[item.id] = section;
@@ -206,6 +223,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
             date: campaign.updatedAt,
             type: 'Campagne',
             tags: [campaign.status.label],
+            attention: _campaignAttention(campaign),
           ),
           'diffusion',
         );
@@ -316,25 +334,6 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     } catch (error) {
       if (mounted && _selected == id) setState(() => _error = _message(error));
     }
-  }
-
-  void _anchor(String section) {
-    setState(() {
-      _selected = null;
-      _error = null;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final target = _sectionKeys[section]?.currentContext;
-      if (target != null) {
-        Scrollable.ensureVisible(
-          target,
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : _style.keyboardScrollDuration,
-        );
-      }
-    });
   }
 
   Future<void> _connect(String id) async {
@@ -577,19 +576,6 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     sectionLabels: _labels,
     sectionEmptyMessages: _notices,
     sectionKeys: _sectionKeys,
-    navigationHeader: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final entry in _labels.entries)
-          TextButton(
-            onPressed: _busy ? null : () => _anchor(entry.key),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(entry.value),
-            ),
-          ),
-      ],
-    ),
     readerFooter: _footer(),
     topBarActions: [
       if (_supportContext?.mailboxes.isNotEmpty == true)
@@ -617,6 +603,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
       ),
     ],
     onRefresh: _load,
+    refreshTooltip: 'Actualiser la boîte',
     isLoading: _loading && _items.isEmpty,
     isLoadingMore: _loading && _items.isNotEmpty,
     hasMore: _cursors.isNotEmpty,

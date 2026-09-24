@@ -153,6 +153,8 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
               .join('\n\n'),
           tags: [summary.status.label],
           seen: summary.status != SupportStatus.pending,
+          signalKind: SourceSidebarSignalKind.urgency,
+          signalStrength: _supportUrgency(summary.status),
         ),
       );
     }
@@ -173,6 +175,9 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
               '${campaign.subject}\n\n${draft?.blocks.map((b) => b.text).join('\n\n') ?? 'Ce brouillon est prêt à être travaillé dans l’éditeur.'}',
           tags: [campaign.status.label],
           seen: true,
+          attention: _campaignAttention(campaign, draft != null),
+          signalKind: SourceSidebarSignalKind.urgency,
+          signalStrength: _campaignUrgency(campaign),
         ),
       );
     }
@@ -181,6 +186,46 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
       _items.removeWhere((item) => _sections.containsKey(item.id));
       _items.addAll(otherItems);
     });
+  }
+
+  SourceSidebarAttention _campaignAttention(
+    NewsletterCampaign campaign,
+    bool hasEditableDraft,
+  ) {
+    final scheduledAt = campaign.scheduledAt;
+    if (campaign.status == NewsletterCampaignStatus.failed ||
+        campaign.status == NewsletterCampaignStatus.partiallyDelivered ||
+        campaign.status == NewsletterCampaignStatus.unknown ||
+        (scheduledAt != null &&
+            scheduledAt.isBefore(
+              DateTime.now().add(const Duration(days: 2)),
+            ))) {
+      return SourceSidebarAttention.needsReview;
+    }
+    if (campaign.status == NewsletterCampaignStatus.draft &&
+        (hasEditableDraft || campaign.subject.trim().isNotEmpty)) {
+      return SourceSidebarAttention.readyToSend;
+    }
+    return SourceSidebarAttention.none;
+  }
+
+  double _supportUrgency(SupportStatus status) => switch (status) {
+    SupportStatus.pending => 0.78,
+    SupportStatus.waiting => 0.35,
+    SupportStatus.resolved => 0.08,
+  };
+
+  double _campaignUrgency(NewsletterCampaign campaign) {
+    if (campaign.status == NewsletterCampaignStatus.failed ||
+        campaign.status == NewsletterCampaignStatus.partiallyDelivered ||
+        campaign.status == NewsletterCampaignStatus.unknown) {
+      return 0.96;
+    }
+    if (campaign.status == NewsletterCampaignStatus.draft &&
+        campaign.subject.trim().isNotEmpty) {
+      return 0.72;
+    }
+    return 0.2;
   }
 
   void _openCampaign(NewsletterCampaign campaign) {
@@ -199,14 +244,6 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
           );
       _fromCampaigns = true;
       _workspace = _DemoWorkspace.newsletter;
-    });
-  }
-
-  void _jumpTo(String section) {
-    setState(() => _selectedId = null);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final target = _sectionKeys[section]?.currentContext;
-      if (target != null) Scrollable.ensureVisible(target, alignment: 0);
     });
   }
 
@@ -555,29 +592,6 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
                 : const {},
             sectionKeys: widget.unified ? _sectionKeys : const {},
             readerFooter: widget.unified ? _facetActions : null,
-            navigationHeader: !widget.unified
-                ? null
-                : Column(
-                    children: [
-                      for (final entry in const {
-                        'sources': 'Sources',
-                        'support': 'Service client',
-                        'diffusion': 'Diffusion',
-                      }.entries)
-                        ListTile(
-                          dense: true,
-                          title: Text(entry.value),
-                          leading: Icon(
-                            entry.key == 'sources'
-                                ? Icons.auto_stories_outlined
-                                : entry.key == 'support'
-                                ? Icons.forum_outlined
-                                : Icons.send_outlined,
-                          ),
-                          onTap: () => _jumpTo(entry.key),
-                        ),
-                    ],
-                  ),
             items: _items,
             selectedId: _selectedId,
             isLoading: _loading,
@@ -615,7 +629,10 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
             ],
             onSelected: (id) => setState(() => _selectedId = id),
             onRefresh: _refresh,
-            onOpenLibrary: _openLibrary,
+            refreshTooltip: widget.unified
+                ? 'Actualiser la boîte'
+                : 'Refresh sources',
+            onOpenLibrary: widget.unified ? null : _openLibrary,
             onIngest: _sections.containsKey(_selectedId) ? null : _ingest,
             onMarkSeen: _sections.containsKey(_selectedId) ? null : _markSeen,
             onArchive: _sections.containsKey(_selectedId) ? null : _archive,
@@ -770,6 +787,7 @@ List<SourceSidebarItem> _previewSources() => [
     summary: 'Keep product decisions separate from provider adapters.',
     day: 25,
     tags: const ['shipglows-ready', 'flutter'],
+    relevance: 0.92,
     content:
         '''A resilient Flutter application keeps presentation, domain decisions, and external providers behind clear boundaries.
 
@@ -782,6 +800,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Authentication, provenance, and prompt-injection boundaries.',
     day: 24,
     tags: const ['shipglows-ready', 'security'],
+    relevance: 0.84,
   ),
   _source(
     id: 'content-systems',
@@ -790,6 +809,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'One source library can feed distinct project workflows.',
     day: 23,
     tags: const ['contentglows-ready', 'workflow'],
+    relevance: 0.66,
     seen: true,
   ),
   _source(
@@ -799,6 +819,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'What to extract before an upgrade becomes urgent.',
     day: 22,
     tags: const ['shipglows-ready', 'maintenance'],
+    relevance: 0.78,
   ),
   _source(
     id: 'reader-workflow',
@@ -807,6 +828,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Capture once, review deliberately, distribute when useful.',
     day: 21,
     tags: const ['research', 'reader'],
+    relevance: 0.42,
     seen: true,
   ),
   _source(
@@ -816,6 +838,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'A provenance-first framework for health content.',
     day: 20,
     tags: const ['contentglows-ready', 'health'],
+    relevance: 0.7,
     seen: true,
   ),
   _source(
@@ -825,6 +848,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Practical implementation notes from production teams.',
     day: 19,
     tags: const ['shipglows-ready', 'security'],
+    relevance: 0.82,
   ),
   _source(
     id: 'editorial-angles',
@@ -833,6 +857,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Move from collected sources to defensible points of view.',
     day: 18,
     tags: const ['contentglows-ready', 'research'],
+    relevance: 0.64,
     processed: true,
   ),
   _source(
@@ -842,6 +867,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Keep scrolling smooth without flattening the experience.',
     day: 17,
     tags: const ['shipglows-ready', 'flutter'],
+    relevance: 0.46,
     seen: true,
   ),
   _source(
@@ -851,6 +877,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Distribution and workflow advantages worth studying.',
     day: 16,
     tags: const ['contentglows-ready', 'business'],
+    relevance: 0.73,
   ),
   _source(
     id: 'supply-chain',
@@ -859,6 +886,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Attestations, lockfiles, and the controls between them.',
     day: 15,
     tags: const ['shipglows-ready', 'security'],
+    relevance: 0.52,
     processed: true,
     seen: true,
   ),
@@ -884,6 +912,7 @@ SourceSidebarItem _source({
   String? content,
   bool seen = false,
   bool processed = false,
+  double relevance = 0,
   String location = 'new',
 }) {
   return SourceSidebarItem(
@@ -900,6 +929,7 @@ SourceSidebarItem _source({
 Production applications provide sanitized content and decide what “Send to project” means. The shared package remains independent from Readwise and from either product architecture.''',
     tags: tags,
     seen: seen,
+    signalStrength: relevance,
     location: location,
     processingState: processed
         ? SourceProcessingState.processed

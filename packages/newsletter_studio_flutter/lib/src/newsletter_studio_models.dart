@@ -38,6 +38,7 @@ enum NewsletterDeliveryState {
   unknown,
   draft,
   scheduled,
+  paused,
   sending,
   delivered,
   partiallyDelivered,
@@ -301,6 +302,7 @@ class NewsletterStudioCapabilities {
     this.canUnschedule = false,
     this.canViewDeliveryStatus = false,
     this.canViewAnalytics = false,
+    this.analyticsUnavailableReason,
   });
 
   final bool canEdit;
@@ -311,6 +313,7 @@ class NewsletterStudioCapabilities {
   final bool canUnschedule;
   final bool canViewDeliveryStatus;
   final bool canViewAnalytics;
+  final String? analyticsUnavailableReason;
 }
 
 extension NewsletterBlockTypeLabel on NewsletterBlockType {
@@ -331,6 +334,7 @@ extension NewsletterDeliveryStateLabel on NewsletterDeliveryState {
     NewsletterDeliveryState.submitted => 'Transmis au prestataire',
     NewsletterDeliveryState.unknown => 'Résultat incertain',
     NewsletterDeliveryState.scheduled => 'Programmé',
+    NewsletterDeliveryState.paused => 'Suspendue',
     NewsletterDeliveryState.sending => 'Envoi en cours',
     NewsletterDeliveryState.delivered => 'Livré',
     NewsletterDeliveryState.partiallyDelivered => 'Livraison partielle',

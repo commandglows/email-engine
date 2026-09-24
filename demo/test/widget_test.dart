@@ -14,15 +14,13 @@ void main() {
 
     await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
     expect(find.text('Sources'), findsOneWidget);
-    expect(find.text('Categories'), findsOneWidget);
+    expect(find.text('Tags'), findsOneWidget);
     expect(find.text('Cybersecurity'), findsOneWidget);
 
     await tester.tap(find.textContaining('Designing resilient').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Send to project'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('demo-processed'), findsOneWidget);
+    expect(find.text('Send to project'), findsNothing);
+    expect(find.byTooltip('Send to projects'), findsOneWidget);
   });
 
   testWidgets('offers a compact list before a source is selected', (

@@ -40,5 +40,31 @@ The backend and frontend must use the campaign API contract documented in
 CommandGlows `shipglows_data/technical/newsletter-campaign-api.md`. The email
 ledger and transport retain their existing pilot activation and allowlist gates.
 
-Validation: `flutter analyze` and `flutter test`. CI also checks the web artifact.
-These checks are not a hosted login, real delivery, or inbox-rendering proof.
+**Integration status (2026-09-23):** the local API adapts Convex list/detail
+responses to Flutter's campaign models and maps `paused` to `suspended` and
+worker states to `sending`. Approval and resume obtain a short-lived server
+challenge bound to the Clerk actor/session, current report, campaign revision and
+action. Pause is a stale-version-safe stop. Resume runs a fresh preflight and
+requires human confirmation. Plan reduction now pages frozen, PII-free recipient
+references; operators can choose only backend-marked reducible references,
+review protected/locked counts, and must explicitly confirm a version-bound
+reduction before preflight and approval are repeated. The editor route provides
+a Scaffold for action feedback.
+
+Incidents have a tenant-authorized paged read and a read-only UI showing persisted
+state, severity, motif and transition time. Measurement, threshold, sample,
+coverage and freshness are explicitly unavailable because no evaluator writes
+them; there is no acknowledge/resolve mutation. Aggregate metrics remain
+unavailable because the current events do not support complete campaign
+attribution and coverage. No rate is fabricated as zero. The legacy
+`/api/v1/email/campaigns` machine relay cannot issue a human session challenge and
+must not be used to approve campaigns. No provider activation or real delivery is
+authorized by this note.
+
+Focused evidence on 2026-09-23: 9 campaign API tests pass, and the campaign
+controls widget test covers incident honesty and explicit reduction confirmation.
+
+Validation: Flutter `analyze` and focused tests. Doppler has no configured project
+in this checkout, so no build or interactive app run was attempted. CI also checks
+the web artifact. These checks are not a hosted login, real delivery, or
+inbox-rendering proof.

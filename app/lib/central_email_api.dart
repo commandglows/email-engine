@@ -137,8 +137,16 @@ class EmailApiException implements Exception {
       'Vérifiez le contenu, l’audience et la date de la campagne.',
     'invalid_state' || 'review_required' =>
       'La campagne doit être revue à nouveau avant cet envoi.',
+    'preflight_blocked' =>
+      'Le préflight bloque cette action. Actualisez le contrôle et consultez les contrôles manquants.',
+    'human_authority_required' || 'challenge_rejected' =>
+      'La confirmation humaine a expiré ou ne correspond plus à cette session. Vérifiez de nouveau la campagne.',
     'configuration_unavailable' =>
       'L’envoi n’est pas encore configuré pour cet espace. Vos brouillons restent disponibles.',
+    'reduction_selection_unavailable' =>
+      'La liste complète des références à réduire est trop grande ou a changé. Rechargez la campagne avant de réessayer.',
+    'incident_read_unavailable' =>
+      'Le registre d’incidents n’est pas disponible pour cette campagne.',
     'rate_limited' =>
       'Trop de demandes rapprochées. Attendez un instant avant de réessayer.',
     _ =>

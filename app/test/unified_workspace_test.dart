@@ -111,12 +111,12 @@ void main() {
       final replyField = find.widgetWithText(TextField, 'Votre réponse');
       await tester.ensureVisible(replyField);
       await tester.enterText(replyField, 'Réponse conservée');
-      await tester.tap(find.widgetWithText(TextButton, 'Sources'));
+      await tester.tap(find.byTooltip('Back to list'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Article source').first);
       await tester.pumpAndSettle();
       expect(find.text('Texte source'), findsWidgets);
-      await tester.tap(find.widgetWithText(TextButton, 'Service client'));
+      await tester.tap(find.byTooltip('Back to list'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Question client').first);
       await tester.pumpAndSettle();

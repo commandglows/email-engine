@@ -37,6 +37,10 @@ NewsletterCampaign campaignFromJson(Map<String, dynamic> json) {
     revision: json['version'] as int,
     status: json['state'] == 'completed'
         ? _completedStatus(counters)
+        : json['state'] == 'paused'
+        ? NewsletterCampaignStatus.suspended
+        : ['running', 'fanout_complete', 'queued'].contains(json['state'])
+        ? NewsletterCampaignStatus.sending
         : status.isEmpty
         ? NewsletterCampaignStatus.unknown
         : status.first,
@@ -69,6 +73,20 @@ NewsletterCampaignStatus _completedStatus(Map counters) {
   if (count('submitted') > 0) return NewsletterCampaignStatus.submitted;
   if (count('delivered') > 0) return NewsletterCampaignStatus.delivered;
   return NewsletterCampaignStatus.completed;
+}
+
+class NewsletterReductionSnapshot {
+  const NewsletterReductionSnapshot({
+    required this.version,
+    required this.reducibleRecipients,
+    required this.protectedCount,
+    required this.lockedCount,
+  });
+
+  final int version;
+  final List<Map<String, dynamic>> reducibleRecipients;
+  final int protectedCount;
+  final int lockedCount;
 }
 
 class CentralCampaignRepository implements NewsletterCampaignRepository {
@@ -136,6 +154,15 @@ class CampaignEditorSession {
   int get version => record['version'] as int;
   String get state => record['state'] as String;
   String get audienceId => record['audience_id'] as String;
+  String? get blockReasonLabel => switch (record['block_reason']) {
+    'operator_paused' => 'Arrêt manuel activé',
+    'remaining_plan_reduced' =>
+      'Plan réduit : nouveau préflight et nouvelle approbation requis',
+    'first_lot_observation_required' =>
+      'Premier lot terminé : décision humaine requise après observation',
+    'operator_cancelled' => 'Campagne annulée par l’opératrice',
+    _ => null,
+  };
   String? _savedSignature;
   Future<void> _writes = Future.value();
 
@@ -167,6 +194,8 @@ class CampaignEditorSession {
     status: state == 'draft'
         ? NewsletterDraftStatus.draft
         : state == 'scheduled'
+        ? NewsletterDraftStatus.scheduled
+        : state == 'suspended'
         ? NewsletterDraftStatus.scheduled
         : NewsletterDraftStatus.sent,
   );
@@ -234,6 +263,10 @@ class CampaignEditorSession {
 
   Future<NewsletterAudienceSummary> resolve(NewsletterDraft value) async {
     await save(value);
+    return _resolveSavedAudience();
+  }
+
+  Future<NewsletterAudienceSummary> _resolveSavedAudience() async {
     // Progress bounded server pages without monopolizing the UI. A larger list
     // remains resumable through Refresh, with no fabricated exact total.
     for (var page = 0; page < 10; page++) {
@@ -248,6 +281,137 @@ class CampaignEditorSession {
       eligibleCount: review!['eligible_count'] as int,
       isResolved: complete,
     );
+  }
+
+  Future<NewsletterReductionSnapshot> loadReductionSnapshot() async {
+    if (!const {
+      'scheduled',
+      'sending',
+      'running',
+      'fanout_complete',
+      'suspended',
+      'paused',
+    }.contains(state)) {
+      throw const EmailApiException('invalid_state');
+    }
+    final expectedVersion = version;
+    final reducible = <Map<String, dynamic>>[];
+    var protectedCount = 0;
+    var lockedCount = 0;
+    String? cursor;
+    var complete = false;
+    for (var page = 0; page < 20; page++) {
+      final result = await api.get('campaigns/$id/recipients', {
+        'business_id': business.id,
+        'limit': '50',
+        'cursor': ?cursor,
+      });
+      final campaign = result['campaign'];
+      if (campaign is! Map || campaign['version'] != expectedVersion) {
+        throw const EmailApiException('version_conflict');
+      }
+      final rows = result['recipients'];
+      if (rows is! List) {
+        throw const EmailApiException('reduction_selection_unavailable');
+      }
+      for (final value in rows) {
+        if (value is! Map<String, dynamic> ||
+            value['recipient_reference'] is! String) {
+          throw const EmailApiException('invalid_backend_receipt');
+        }
+        if (value['reducible'] == true) {
+          reducible.add(value);
+        } else {
+          lockedCount++;
+          if (value['protected'] == true) protectedCount++;
+        }
+      }
+      final next = result['next_cursor'];
+      if (next == null) {
+        complete = true;
+        break;
+      }
+      if (next is! String || next == cursor) {
+        throw const EmailApiException('invalid_backend_receipt');
+      }
+      cursor = next;
+    }
+    if (!complete) {
+      throw const EmailApiException('reduction_selection_unavailable');
+    }
+    return NewsletterReductionSnapshot(
+      version: expectedVersion,
+      reducibleRecipients: reducible,
+      protectedCount: protectedCount,
+      lockedCount: lockedCount,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> loadIncidents() async {
+    final incidents = <Map<String, dynamic>>[];
+    String? cursor;
+    var complete = false;
+    for (var page = 0; page < 20; page++) {
+      final result = await api.get('campaigns/$id/incidents', {
+        'business_id': business.id,
+        'limit': '50',
+        'cursor': ?cursor,
+      });
+      final rows = result['incidents'];
+      if (rows is! List) {
+        throw const EmailApiException('incident_read_unavailable');
+      }
+      for (final value in rows) {
+        if (value is! Map<String, dynamic>) {
+          throw const EmailApiException('invalid_backend_receipt');
+        }
+        incidents.add(value);
+      }
+      final next = result['cursor'];
+      if (next == null) {
+        complete = true;
+        break;
+      }
+      if (next is! String || next == cursor) {
+        throw const EmailApiException('invalid_backend_receipt');
+      }
+      cursor = next;
+    }
+    if (!complete) throw const EmailApiException('incident_read_unavailable');
+    return incidents;
+  }
+
+  List<NewsletterValidationIssue> preflightIssues() {
+    final current = review;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final blockers = current?['blocking_checks'];
+    if (current == null || current['version'] != version) {
+      return const [
+        NewsletterValidationIssue(
+          id: 'preflight_missing',
+          severity: NewsletterIssueSeverity.blocker,
+          title: 'Préflight requis',
+          message: 'Actualisez le contrôle serveur avant toute validation.',
+        ),
+      ];
+    }
+    if (current['complete'] != true ||
+        current['report_id'] is! String ||
+        current['expires_at'] is! num ||
+        (current['expires_at'] as num).toInt() <= now ||
+        blockers is! List ||
+        blockers.isNotEmpty) {
+      return const [
+        NewsletterValidationIssue(
+          id: 'preflight_blocked',
+          severity: NewsletterIssueSeverity.blocker,
+          title: 'Préflight non valide',
+          message:
+              'Les contrôles serveur sont incomplets, bloqués ou expirés. Consultez l’état de la campagne et relancez la vérification.',
+        ),
+      ];
+    }
+    return const [];
   }
 
   Future<NewsletterPreview> preview(
@@ -294,11 +458,22 @@ class CampaignEditorSession {
     NewsletterSchedule? schedule,
   ]) async {
     await save(value);
-    if (review == null || review!['version'] != version) {
+    if (preflightIssues().isNotEmpty) {
       throw const EmailApiException('review_required');
+    }
+    final reportId = review!['report_id'] as String;
+    final issued = await command('challenge', {
+      'action': 'approve',
+      'report_id': reportId,
+    });
+    final challenge = issued['challenge'];
+    if (challenge is! Map || challenge['id'] is! String) {
+      throw const EmailApiException('invalid_backend_receipt');
     }
     await command('approve', {
       'review_id': review!['id'],
+      'report_id': reportId,
+      'challenge_id': challenge['id'],
       if (schedule != null)
         'scheduled_at': schedule.sendAt.toUtc().toIso8601String(),
     });
@@ -315,6 +490,83 @@ class CampaignEditorSession {
     await command('cancel');
   }
 
+  Future<void> pause() async {
+    await command('pause');
+  }
+
+  Future<NewsletterAudienceSummary> refreshForResume() async {
+    if (state != 'suspended' ||
+        record['block_reason'] == 'remaining_plan_reduced') {
+      throw const EmailApiException('invalid_state');
+    }
+    return _resolveSavedAudience();
+  }
+
+  Future<NewsletterAudienceSummary> refreshForReducedPlan() async {
+    if (state != 'suspended' ||
+        record['block_reason'] != 'remaining_plan_reduced') {
+      throw const EmailApiException('invalid_state');
+    }
+    return _resolveSavedAudience();
+  }
+
+  Future<void> approveReducedPlan() async {
+    if (state != 'suspended' ||
+        record['block_reason'] != 'remaining_plan_reduced' ||
+        preflightIssues().isNotEmpty) {
+      throw const EmailApiException('preflight_blocked');
+    }
+    final reportId = review!['report_id'] as String;
+    final issued = await command('challenge', {
+      'action': 'approve',
+      'report_id': reportId,
+    });
+    final challenge = issued['challenge'];
+    if (challenge is! Map || challenge['id'] is! String) {
+      throw const EmailApiException('invalid_backend_receipt');
+    }
+    await command('approve', {
+      'review_id': review!['id'],
+      'report_id': reportId,
+      'challenge_id': challenge['id'],
+    });
+  }
+
+  Future<void> resume() async {
+    if (preflightIssues().isNotEmpty) {
+      throw const EmailApiException('preflight_blocked');
+    }
+    final reportId = review!['report_id'] as String;
+    final issued = await command('challenge', {
+      'action': 'resume',
+      'report_id': reportId,
+    });
+    final challenge = issued['challenge'];
+    if (challenge is! Map || challenge['id'] is! String) {
+      throw const EmailApiException('invalid_backend_receipt');
+    }
+    await command('resume', {
+      'report_id': reportId,
+      'challenge_id': challenge['id'],
+    });
+  }
+
+  Future<void> reduceRemainingPlan(
+    List<String> recipientReferences, {
+    int? expectedVersion,
+  }) async {
+    if (recipientReferences.isEmpty || recipientReferences.length > 1000) {
+      throw const EmailApiException('invalid_input');
+    }
+    if (expectedVersion != null && expectedVersion != version) {
+      throw const EmailApiException('version_conflict');
+    }
+    await command('reduce', {
+      'recipient_ids': recipientReferences,
+      'expected_version': ?expectedVersion,
+    });
+  }
+
   Future<NewsletterDeliveryStatus> delivery() async {
     final json = await api.get('campaigns/$id', {'business_id': business.id});
     record = json['campaign'] as Map<String, dynamic>;
@@ -324,6 +576,7 @@ class CampaignEditorSession {
       state: switch (state) {
         'draft' => NewsletterDeliveryState.draft,
         'scheduled' => NewsletterDeliveryState.scheduled,
+        'suspended' => NewsletterDeliveryState.paused,
         'cancelled' => NewsletterDeliveryState.cancelled,
         'delivered' => NewsletterDeliveryState.delivered,
         'failed' => NewsletterDeliveryState.failed,
@@ -341,7 +594,7 @@ class CampaignEditorSession {
         _ => NewsletterDeliveryState.sending,
       },
       message:
-          '${counters['submitted'] ?? 0} acceptés · ${counters['delivered'] ?? 0} livrés · ${counters['failed'] ?? 0} échecs · ${counters['unknown'] ?? 0} résultats incertains',
+          '${counters['submitted'] ?? 0} acceptés · ${counters['delivered'] ?? 0} livrés · ${counters['failed'] ?? 0} échecs · ${counters['unknown'] ?? 0} résultats incertains${blockReasonLabel == null ? '' : ' · $blockReasonLabel'}',
       updatedAt: DateTime.parse(record['updated_at'] as String),
       operationId: id,
     );

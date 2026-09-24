@@ -1699,6 +1699,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                     testReceipt: _testReceipt,
                     deliveryStatus: _deliveryStatus,
                     analytics: _analytics,
+                    analyticsUnavailableReason:
+                        widget.capabilities.analyticsUnavailableReason,
                     currentRevision: _draft.revision,
                     canUnschedule:
                         widget.schedule != null &&
@@ -2435,6 +2437,7 @@ class _SendInspector extends StatelessWidget {
     required this.testReceipt,
     required this.deliveryStatus,
     required this.analytics,
+    required this.analyticsUnavailableReason,
     required this.currentRevision,
     required this.canUnschedule,
     required this.canLoadAnalytics,
@@ -2451,6 +2454,7 @@ class _SendInspector extends StatelessWidget {
   final NewsletterTestReceipt? testReceipt;
   final NewsletterDeliveryStatus? deliveryStatus;
   final Map<String, num>? analytics;
+  final String? analyticsUnavailableReason;
   final int currentRevision;
   final bool canUnschedule;
   final bool canLoadAnalytics;
@@ -2549,6 +2553,11 @@ class _SendInspector extends StatelessWidget {
                     : 'Actualiser les résultats',
               ),
             ),
+          ),
+        if (!canLoadAnalytics && analyticsUnavailableReason != null)
+          Text(
+            analyticsUnavailableReason!,
+            style: TextStyle(color: colors.mutedForeground),
           ),
         SizedBox(height: style.largeGap),
         Text(

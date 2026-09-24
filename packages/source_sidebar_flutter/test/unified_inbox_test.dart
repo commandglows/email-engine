@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:source_sidebar_flutter/source_sidebar_flutter.dart';
 
-SourceSidebarItem email(String id) => SourceSidebarItem(
+SourceSidebarItem email(String id, {bool seen = false}) => SourceSidebarItem(
   id: id,
   title: 'Email $id',
   authorOrPublisher: 'Expéditeur',
@@ -10,6 +10,7 @@ SourceSidebarItem email(String id) => SourceSidebarItem(
   publishedAt: DateTime(2026, 9, 8),
   sourceType: 'email',
   content: 'Contenu $id',
+  seen: seen,
 );
 const sections = {
   'sources': 'Sources',
@@ -99,6 +100,74 @@ void main() {
     expect(find.byType(SingleChildScrollView), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'all grouped sections render with their rows on desktop and mobile',
+    (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      tester.view.devicePixelRatio = 1;
+
+      for (final size in [const Size(1440, 1000), const Size(390, 844)]) {
+        tester.view.physicalSize = size;
+        String? selectedId;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StatefulBuilder(
+              builder: (context, update) => SourceSidebar(
+                title: 'Boîte unifiée',
+                items: [email('source'), email('support'), email('campaign')],
+                selectedId: selectedId,
+                onSelected: (id) => update(() => selectedId = id),
+                sectionLabels: sections,
+                itemSectionIds: const {
+                  'source': 'sources',
+                  'support': 'support',
+                  'campaign': 'diffusion',
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final sourcesHeader = find.text('Sources');
+        final supportHeader = find.text('Service client');
+        final diffusionHeader = find.text('Diffusion');
+        final sourceRow = find.text('Email source');
+        final supportRow = find.text('Email support');
+        final campaignRow = find.text('Email campaign');
+        expect(sourcesHeader, findsOneWidget);
+        expect(supportHeader, findsOneWidget);
+        expect(diffusionHeader, findsOneWidget);
+        expect(sourceRow, findsOneWidget);
+        expect(supportRow, findsOneWidget);
+        expect(campaignRow, findsOneWidget);
+
+        final sourcesY = tester.getTopLeft(sourcesHeader).dy;
+        final supportY = tester.getTopLeft(supportHeader).dy;
+        final diffusionY = tester.getTopLeft(diffusionHeader).dy;
+        expect(sourcesY, lessThan(tester.getTopLeft(sourceRow).dy));
+        expect(tester.getTopLeft(sourceRow).dy, lessThan(supportY));
+        expect(supportY, lessThan(tester.getTopLeft(supportRow).dy));
+        expect(tester.getTopLeft(supportRow).dy, lessThan(diffusionY));
+        expect(diffusionY, lessThan(tester.getTopLeft(campaignRow).dy));
+
+        await tester.ensureVisible(supportRow);
+        await tester.tap(supportRow);
+        await tester.pumpAndSettle();
+        expect(find.text('Contenu support'), findsOneWidget);
+        expect(find.byTooltip('Back to list'), findsOneWidget);
+        await tester.tap(find.byTooltip('Back to list'));
+        await tester.pumpAndSettle();
+        expect(find.text('Sources'), findsOneWidget);
+        expect(find.text('Service client'), findsOneWidget);
+        expect(find.text('Diffusion'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
   testWidgets('navigation header precedes existing desktop filters', (
     tester,
   ) async {
@@ -121,5 +190,47 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Inbox').first).dy),
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a colored group header collapses and restores its own rows', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceSidebar(
+          items: [email('source', seen: true), email('support')],
+          onSelected: (_) {},
+          sectionLabels: sections,
+          itemSectionIds: const {'support': 'support'},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Email source'), findsOneWidget);
+    expect(find.text('0 / 1'), findsOneWidget);
+    expect(find.text('1 / 1'), findsOneWidget);
+    await tester.tap(find.text('Sources').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Email source'), findsNothing);
+    expect(find.byIcon(Icons.expand_more), findsWidgets);
+    await tester.tap(find.text('Sources').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Email source'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a host can name unified refresh accurately', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceSidebar(
+          items: const [],
+          onSelected: (_) {},
+          sectionLabels: sections,
+          refreshTooltip: 'Actualiser la boîte',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Actualiser la boîte'), findsOneWidget);
   });
 }

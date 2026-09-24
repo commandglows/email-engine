@@ -72,7 +72,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Categories'), findsOneWidget);
+    expect(find.text('Tags'), findsOneWidget);
     expect(find.text('Ready for project'), findsOneWidget);
     expect(find.text('unknown-category'), findsOneWidget);
     final configuredIcon = tester.widget<Icon>(
@@ -118,9 +118,8 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Send to project'));
-    await tester.pump();
-    expect(ingested?.id, 'one');
+    expect(find.text('Send to project'), findsNothing);
+    expect(ingested, isNull);
   });
 
   testWidgets('requires confirmation before delete', (tester) async {
@@ -159,23 +158,23 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
     await tester.pump();
-    expect(find.byTooltip('Back to sources'), findsNothing);
+    expect(find.byTooltip('Back to list'), findsNothing);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
-    expect(find.byTooltip('Back to sources'), findsOneWidget);
+    expect(find.byTooltip('Back to list'), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.keyU);
     await tester.pump();
-    expect(find.byTooltip('Back to sources'), findsNothing);
+    expect(find.byTooltip('Back to list'), findsNothing);
     expect(find.text('A useful source'), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
     await tester.pump();
-    expect(find.byTooltip('Back to sources'), findsOneWidget);
+    expect(find.byTooltip('Back to list'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
-    expect(find.byTooltip('Back to sources'), findsNothing);
+    expect(find.byTooltip('Back to list'), findsNothing);
   });
 
   testWidgets('J and K reclaim primary focus for the active source row', (
@@ -228,7 +227,7 @@ void main() {
     await tester.pump();
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
-    expect(find.byTooltip('Back to sources'), findsOneWidget);
+    expect(find.byTooltip('Back to list'), findsOneWidget);
   });
 
   testWidgets(

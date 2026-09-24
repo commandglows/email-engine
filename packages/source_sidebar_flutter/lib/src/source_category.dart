@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+enum SourceCategoryKind { project, tag }
+
 /// Host-owned visual definition for a category referenced by
 /// `SourceSidebarItem.tags`.
 ///
@@ -13,6 +15,7 @@ class SourceCategory {
     required this.name,
     required this.color,
     required this.icon,
+    this.kind = SourceCategoryKind.tag,
   }) : assert(id != ''),
        assert(name != '');
 
@@ -20,4 +23,5 @@ class SourceCategory {
   final String name;
   final Color color;
   final IconData icon;
+  final SourceCategoryKind kind;
 }
