@@ -24,6 +24,7 @@ class NewsletterStudio extends StatefulWidget {
     this.testReceipt,
     this.deliveryStatus,
     this.validationIssues = const <NewsletterValidationIssue>[],
+    this.linkReport,
     this.capabilities = const NewsletterStudioCapabilities(),
     this.style = const NewsletterStudioStyle(),
     this.shortcuts = const NewsletterStudioShortcuts(),
@@ -31,10 +32,13 @@ class NewsletterStudio extends StatefulWidget {
     this.onAttachSources,
     this.onResolveAudience,
     this.onValidateDraft,
+    this.onCheckLinks,
     this.onRenderPreview,
     this.onSendTest,
     this.onSchedule,
     this.onSend,
+    this.onSendWithLinkReport,
+    this.onScheduleWithLinkReport,
     this.onUnschedule,
     this.onOpenSource,
     this.onLoadDeliveryStatus,
@@ -55,6 +59,7 @@ class NewsletterStudio extends StatefulWidget {
   final NewsletterTestReceipt? testReceipt;
   final NewsletterDeliveryStatus? deliveryStatus;
   final List<NewsletterValidationIssue> validationIssues;
+  final NewsletterLinkCheckReport? linkReport;
   final NewsletterStudioCapabilities capabilities;
   final NewsletterStudioStyle style;
   final NewsletterStudioShortcuts shortcuts;
@@ -62,10 +67,13 @@ class NewsletterStudio extends StatefulWidget {
   final NewsletterSourcesAttacher? onAttachSources;
   final NewsletterAudienceResolver? onResolveAudience;
   final NewsletterDraftValidator? onValidateDraft;
+  final NewsletterLinkChecker? onCheckLinks;
   final NewsletterPreviewRenderer? onRenderPreview;
   final NewsletterTestSender? onSendTest;
   final NewsletterScheduler? onSchedule;
   final NewsletterSender? onSend;
+  final NewsletterLinkReportSender? onSendWithLinkReport;
+  final NewsletterLinkReportScheduler? onScheduleWithLinkReport;
   final NewsletterUnscheduler? onUnschedule;
   final NewsletterSourceOpener? onOpenSource;
   final NewsletterDeliveryStatusLoader? onLoadDeliveryStatus;
@@ -85,6 +93,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
   final _subjectFocus = FocusNode(debugLabel: 'Newsletter subject');
   final _sourceFocusNodes = <String, FocusNode>{};
   final _sourceKeys = <String, GlobalKey>{};
+  final _blockKeys = <String, GlobalKey>{};
+  final _blockUrlFocusNodes = <String, FocusNode>{};
   final _titleController = TextEditingController();
   final _subjectController = TextEditingController();
   final _preheaderController = TextEditingController();
@@ -193,6 +203,9 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     for (final node in _sourceFocusNodes.values) {
       node.dispose();
     }
+    for (final node in _blockUrlFocusNodes.values) {
+      node.dispose();
+    }
     super.dispose();
   }
 
@@ -227,6 +240,13 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       _testReceipt = null;
       _lastError = null;
     });
+    final liveBlockIds = dirty.blocks.map((block) => block.id).toSet();
+    for (final id in _blockUrlFocusNodes.keys.toList()) {
+      if (!liveBlockIds.contains(id)) {
+        _blockUrlFocusNodes.remove(id)?.dispose();
+        _blockKeys.remove(id);
+      }
+    }
     widget.onDraftChanged(dirty);
     if (autosave) _scheduleAutosave();
   }
@@ -852,6 +872,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     if (!await _flushSave() || !mounted) return;
     var issues = await _validate();
     if (!mounted) return;
+    _linkReportInReview = widget.linkReport;
+    _linkCheckError = null;
     setState(() => _compactPage = _CompactPage.review);
     await showGeneralDialog<void>(
       context: context,
@@ -879,6 +901,42 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                     schedule: widget.schedule,
                     testReceipt: _testReceipt,
                     issues: issues,
+                    linkReport: _linkReportInReview,
+                    onCheckLinks: widget.onCheckLinks == null
+                        ? null
+                        : () async {
+                            final confirmed = await _confirmation(
+                              dialogContext,
+                              title: 'Vérifier les liens ? ',
+                              message:
+                                  'Cette vérification enverra des requêtes externes non authentifiées aux destinations du brouillon. Un GET limité peut suivre un HEAD refusé et provoquer un effet sur le site visé.',
+                              action: 'Vérifier les liens',
+                            );
+                            if (!confirmed || !dialogContext.mounted) return;
+                            setReviewState(() {
+                              _linkCheckBusy = true;
+                              _linkCheckError = null;
+                            });
+                            try {
+                              final report = await widget.onCheckLinks!(_draft);
+                              if (!dialogContext.mounted) return;
+                              setReviewState(() {
+                                _linkReportInReview = report;
+                                _linkCheckBusy = false;
+                              });
+                            } catch (_) {
+                              if (!dialogContext.mounted) return;
+                              setReviewState(() {
+                                _linkCheckBusy = false;
+                                _linkCheckError =
+                                    'La vérification n’a pas abouti. Actualisez son état avant de réessayer.';
+                              });
+                            }
+                          },
+                    linkCheckBusy: _linkCheckBusy,
+                    linkCheckError: _linkCheckError,
+                    onOpenLinkBlock: (blockId) =>
+                        _focusLinkBlock(dialogContext, blockId),
                     capabilities: widget.capabilities,
                     style: widget.style,
                     colors: _colors,
@@ -900,12 +958,27 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                             setReviewState(() => issues = refreshed);
                           },
                     onSchedule:
-                        widget.schedule == null || widget.onSchedule == null
+                        widget.schedule == null ||
+                            (widget.onSchedule == null &&
+                                widget.onScheduleWithLinkReport == null)
                         ? null
-                        : () => _confirmSchedule(dialogContext, issues),
-                    onSend: widget.onSend == null
+                        : ({required bool overrideUncertain}) =>
+                              _confirmSchedule(
+                                dialogContext,
+                                issues,
+                                report: _linkReportInReview,
+                                overrideUncertain: overrideUncertain,
+                              ),
+                    onSend:
+                        widget.onSend == null &&
+                            widget.onSendWithLinkReport == null
                         ? null
-                        : () => _confirmSend(dialogContext, issues),
+                        : ({required bool overrideUncertain}) => _confirmSend(
+                            dialogContext,
+                            issues,
+                            report: _linkReportInReview,
+                            overrideUncertain: overrideUncertain,
+                          ),
                     onClose: () => Navigator.pop(dialogContext),
                   ),
                 ),
@@ -927,6 +1000,38 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     _restoreWorkspaceFocus();
   }
 
+  bool _linkCheckBusy = false;
+  String? _linkCheckError;
+  NewsletterLinkCheckReport? _linkReportInReview;
+
+  void _focusLinkBlock(BuildContext reviewContext, String blockId) {
+    if (!reviewContext.mounted) return;
+    Navigator.pop(reviewContext);
+    setState(() {
+      _compactPage = _CompactPage.write;
+      _showPreview = false;
+      _selectedBlockId = blockId;
+      _inspectorTab = _InspectorTab.content;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // The review route retains its focus scope until the reverse transition
+      // finishes. Wait for it to leave the navigator before focusing the editor.
+      await Future<void>.delayed(widget.style.reviewTransitionDuration);
+      if (!mounted) return;
+      final key = _blockKeys[blockId];
+      final target = _blockUrlFocusNodes[blockId];
+      final context = key?.currentContext;
+      if (context != null && context.mounted) {
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.35,
+          duration: widget.style.focusScrollDuration,
+        );
+      }
+      target?.requestFocus();
+    });
+  }
+
   bool _hasBlockers(List<NewsletterValidationIssue> issues) {
     return issues.any(
       (issue) => issue.severity == NewsletterIssueSeverity.blocker,
@@ -935,23 +1040,48 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
 
   Future<void> _confirmSchedule(
     BuildContext reviewContext,
-    List<NewsletterValidationIssue> issues,
-  ) async {
+    List<NewsletterValidationIssue> issues, {
+    NewsletterLinkCheckReport? report,
+    bool overrideUncertain = false,
+  }) async {
     if (_hasBlockers(issues) || !widget.capabilities.canSchedule) return;
+    if (widget.onCheckLinks != null &&
+        (report == null ||
+            !report.isCurrentFor(_draft) ||
+            report.hasBlockers ||
+            (report.requiresOverride != overrideUncertain))) {
+      return;
+    }
     final schedule = widget.schedule;
     final callback = widget.onSchedule;
-    if (schedule == null || callback == null) return;
+    final linkCallback = widget.onScheduleWithLinkReport;
+    if (schedule == null || (callback == null && linkCallback == null)) return;
     final confirmed = await _confirmation(
       reviewContext,
-      title: 'Programmer cette newsletter ?',
-      message: 'L’envoi sera demandé pour le ${_scheduleLabel(schedule)}.',
-      action: 'Confirmer la programmation',
+      title: overrideUncertain
+          ? 'Programmer malgré des liens non vérifiés ?'
+          : 'Programmer cette newsletter ?',
+      message: overrideUncertain
+          ? 'Certains liens restent incertains. Cette dérogation sera enregistrée avec votre approbation.'
+          : 'L’envoi sera demandé pour le ${_scheduleLabel(schedule)}.',
+      action: overrideUncertain
+          ? 'Déroger et programmer'
+          : 'Confirmer la programmation',
     );
     if (!confirmed || !mounted || !reviewContext.mounted) return;
     Navigator.pop(reviewContext);
     setState(() => _operation = NewsletterOperationKind.scheduling);
     try {
-      await callback(_draft, schedule);
+      if (linkCallback != null && report != null) {
+        await linkCallback(
+          _draft,
+          schedule,
+          report,
+          overrideUncertain: overrideUncertain,
+        );
+      } else if (callback != null) {
+        await callback(_draft, schedule);
+      }
       if (mounted) setState(() => _operation = NewsletterOperationKind.idle);
     } catch (error) {
       if (!mounted) return;
@@ -965,24 +1095,45 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
 
   Future<void> _confirmSend(
     BuildContext reviewContext,
-    List<NewsletterValidationIssue> issues,
-  ) async {
+    List<NewsletterValidationIssue> issues, {
+    NewsletterLinkCheckReport? report,
+    bool overrideUncertain = false,
+  }) async {
     if (_hasBlockers(issues) || !widget.capabilities.canSend) return;
     final callback = widget.onSend;
-    if (callback == null) return;
+    final linkCallback = widget.onSendWithLinkReport;
+    if (widget.onCheckLinks != null &&
+        (report == null ||
+            !report.isCurrentFor(_draft) ||
+            report.hasBlockers ||
+            (report.requiresOverride != overrideUncertain))) {
+      return;
+    }
+    if (callback == null && linkCallback == null) return;
     final confirmed = await _confirmation(
       reviewContext,
-      title: 'Envoyer cette newsletter maintenant ?',
-      message:
-          'Cette action demande l’envoi à ${_audience?.eligibleCount ?? 0} destinataires éligibles.',
-      action: 'Confirmer l’envoi',
+      title: overrideUncertain
+          ? 'Envoyer malgré des liens non vérifiés ?'
+          : 'Envoyer cette newsletter maintenant ?',
+      message: overrideUncertain
+          ? 'Certains liens restent incertains. Cette dérogation sera enregistrée avec votre approbation.'
+          : 'Cette action demande l’envoi à ${_audience?.eligibleCount ?? 0} destinataires éligibles.',
+      action: overrideUncertain ? 'Déroger et envoyer' : 'Confirmer l’envoi',
       destructive: true,
     );
     if (!confirmed || !mounted || !reviewContext.mounted) return;
     Navigator.pop(reviewContext);
     setState(() => _operation = NewsletterOperationKind.sending);
     try {
-      await callback(_draft);
+      if (linkCallback != null && report != null) {
+        await linkCallback(
+          _draft,
+          report,
+          overrideUncertain: overrideUncertain,
+        );
+      } else if (callback != null) {
+        await callback(_draft);
+      }
       if (mounted) setState(() => _operation = NewsletterOperationKind.idle);
     } catch (error) {
       if (!mounted) return;
@@ -1519,11 +1670,22 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                     else
                       for (var index = 0; index < _draft.blocks.length; index++)
                         Padding(
+                          key: _blockKeys.putIfAbsent(
+                            _draft.blocks[index].id,
+                            GlobalKey.new,
+                          ),
                           padding: EdgeInsets.only(
                             bottom: widget.style.mediumGap,
                           ),
                           child: _BlockCard(
                             block: _draft.blocks[index],
+                            urlFocusNode: _blockUrlFocusNodes.putIfAbsent(
+                              _draft.blocks[index].id,
+                              () => FocusNode(
+                                debugLabel:
+                                    'Newsletter link ${_draft.blocks[index].id}',
+                              ),
+                            ),
                             selected:
                                 _selectedBlockId == _draft.blocks[index].id,
                             canEdit: _canEdit,
@@ -2043,6 +2205,7 @@ class _SourceRow extends StatelessWidget {
 class _BlockCard extends StatelessWidget {
   const _BlockCard({
     required this.block,
+    required this.urlFocusNode,
     required this.selected,
     required this.canEdit,
     required this.canMoveUp,
@@ -2057,6 +2220,7 @@ class _BlockCard extends StatelessWidget {
     required this.onOpenSource,
   });
   final NewsletterBlock block;
+  final FocusNode urlFocusNode;
   final bool selected;
   final bool canEdit;
   final bool canMoveUp;
@@ -2137,13 +2301,19 @@ class _BlockCard extends StatelessWidget {
               decoration: const InputDecoration(labelText: 'Texte du bouton'),
               onChanged: (value) => onChanged(block.copyWith(label: value)),
             ),
+          ],
+          if (block.type == NewsletterBlockType.button ||
+              block.type == NewsletterBlockType.source) ...[
             TextFormField(
               key: ValueKey('newsletter-url-${block.id}'),
-              initialValue: block.url?.toString(),
+              focusNode: urlFocusNode,
+              initialValue: block.rawUrl ?? block.url?.toString(),
               enabled: canEdit && !block.isProtected,
               keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Lien du bouton',
+              decoration: InputDecoration(
+                labelText: block.type == NewsletterBlockType.button
+                    ? 'Lien du bouton'
+                    : 'Lien de la source',
                 hintText: 'https://…',
               ),
               autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -2151,12 +2321,18 @@ class _BlockCard extends StatelessWidget {
                 final uri = Uri.tryParse(value ?? '');
                 return uri != null &&
                         uri.scheme == 'https' &&
-                        uri.host.isNotEmpty
+                        uri.host.isNotEmpty &&
+                        uri.userInfo.isEmpty &&
+                        (uri.hasPort == false || uri.port == 443)
                     ? null
                     : 'Indiquez une adresse HTTPS complète.';
               },
-              onChanged: (value) =>
-                  onChanged(block.copyWith(url: Uri.tryParse(value) ?? Uri())),
+              onChanged: (value) => onChanged(
+                block.copyWith(
+                  url: Uri.tryParse(value) ?? Uri(),
+                  rawUrl: value,
+                ),
+              ),
             ),
           ],
           if (block.type == NewsletterBlockType.source && onOpenSource != null)
@@ -2577,6 +2753,11 @@ class _ReviewPanel extends StatelessWidget {
     required this.schedule,
     required this.testReceipt,
     required this.issues,
+    required this.linkReport,
+    required this.onCheckLinks,
+    required this.linkCheckBusy,
+    required this.linkCheckError,
+    required this.onOpenLinkBlock,
     required this.capabilities,
     required this.style,
     required this.colors,
@@ -2593,14 +2774,19 @@ class _ReviewPanel extends StatelessWidget {
   final NewsletterSchedule? schedule;
   final NewsletterTestReceipt? testReceipt;
   final List<NewsletterValidationIssue> issues;
+  final NewsletterLinkCheckReport? linkReport;
+  final Future<void> Function()? onCheckLinks;
+  final bool linkCheckBusy;
+  final String? linkCheckError;
+  final ValueChanged<String> onOpenLinkBlock;
   final NewsletterStudioCapabilities capabilities;
   final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
   final bool isBusy;
   final VoidCallback? onResolveAudience;
   final VoidCallback? onSendTest;
-  final VoidCallback? onSchedule;
-  final VoidCallback? onSend;
+  final Future<void> Function({required bool overrideUncertain})? onSchedule;
+  final Future<void> Function({required bool overrideUncertain})? onSend;
   final VoidCallback onClose;
   bool get hasBlockers =>
       issues.any((issue) => issue.severity == NewsletterIssueSeverity.blocker);
@@ -2612,6 +2798,12 @@ class _ReviewPanel extends StatelessWidget {
     final warnings = issues
         .where((issue) => issue.severity == NewsletterIssueSeverity.warning)
         .toList();
+    final reportCurrent = linkReport?.isCurrentFor(draft) ?? false;
+    final linksReady = onCheckLinks == null || reportCurrent;
+    final linkBlockers = reportCurrent && linkReport!.hasBlockers;
+    final linkUncertain = reportCurrent && linkReport!.requiresOverride;
+    final sendBlocked =
+        hasBlockers || !linksReady || linkBlockers || linkCheckBusy;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2646,6 +2838,18 @@ class _ReviewPanel extends StatelessWidget {
                 icon: Icons.subject,
                 label: 'Objet',
                 value: draft.subject.isEmpty ? 'Manquant' : draft.subject,
+                colors: colors,
+              ),
+              SizedBox(height: style.largeGap),
+              _LinkReviewCard(
+                report: linkReport,
+                reportCurrent: reportCurrent,
+                checkBusy: linkCheckBusy,
+                checkError: linkCheckError,
+                canCheck: onCheckLinks != null && !isBusy && !linkCheckBusy,
+                onCheck: onCheckLinks,
+                onOpenBlock: onOpenLinkBlock,
+                style: style,
                 colors: colors,
               ),
               _ReviewSummaryCard(
@@ -2727,13 +2931,32 @@ class _ReviewPanel extends StatelessWidget {
                     style: TextStyle(color: colors.danger),
                   ),
                 ),
+              if (linkBlockers)
+                Padding(
+                  padding: EdgeInsets.only(bottom: style.smallGap),
+                  child: Text(
+                    'Corrigez les liens bloquants et relancez la vérification.',
+                    style: TextStyle(color: colors.danger),
+                  ),
+                ),
+              if (onCheckLinks != null && !linksReady)
+                Padding(
+                  padding: EdgeInsets.only(bottom: style.smallGap),
+                  child: Text(
+                    'Une vérification actuelle et complète des liens est requise.',
+                    style: TextStyle(color: colors.warning),
+                  ),
+                ),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed:
-                          !hasBlockers && !isBusy && capabilities.canSchedule
-                          ? onSchedule
+                          !sendBlocked &&
+                              !linkUncertain &&
+                              !isBusy &&
+                              capabilities.canSchedule
+                          ? () => onSchedule?.call(overrideUncertain: false)
                           : null,
                       child: Text(
                         schedule == null
@@ -2742,21 +2965,51 @@ class _ReviewPanel extends StatelessWidget {
                       ),
                     ),
                   ),
-                  SizedBox(width: style.smallGap),
-                  Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: colors.primaryActionSurface,
-                        foregroundColor: colors.primaryActionForeground,
-                      ),
-                      onPressed: !hasBlockers && !isBusy && capabilities.canSend
-                          ? onSend
-                          : null,
-                      child: const Text('Envoyer maintenant'),
-                    ),
-                  ),
                 ],
               ),
+              SizedBox(height: style.smallGap),
+              if (!sendBlocked &&
+                  !linkUncertain &&
+                  !isBusy &&
+                  capabilities.canSend &&
+                  onSend != null)
+                _SlideToSend(
+                  label: 'Glisser pour envoyer maintenant',
+                  accessibleActionLabel:
+                      'Envoyer maintenant au clavier ou avec un lecteur d’écran',
+                  colors: colors,
+                  onComplete: () => onSend!(overrideUncertain: false),
+                )
+              else
+                FilledButton(
+                  onPressed: null,
+                  child: const Text('Envoyer maintenant'),
+                ),
+              if (linkUncertain && !linkBlockers && linksReady) ...[
+                SizedBox(height: style.smallGap),
+                Text(
+                  'Des destinations n’ont pas pu être confirmées. La dérogation sera enregistrée côté serveur.',
+                  style: TextStyle(color: colors.warning),
+                ),
+                SizedBox(height: style.smallGap),
+                if (capabilities.canSchedule && onSchedule != null)
+                  OutlinedButton(
+                    onPressed: !isBusy
+                        ? () => onSchedule!.call(overrideUncertain: true)
+                        : null,
+                    child: const Text('Déroger et programmer'),
+                  ),
+                if (capabilities.canSend && onSend != null)
+                  _SlideToSend(
+                    label: 'Glisser pour déroger et envoyer',
+                    accessibleActionLabel:
+                        'Déroger et envoyer au clavier ou avec un lecteur d’écran',
+                    colors: colors,
+                    warning: true,
+                    enabled: !isBusy,
+                    onComplete: () => onSend!(overrideUncertain: true),
+                  ),
+              ],
             ],
           ),
         ),
@@ -2766,6 +3019,110 @@ class _ReviewPanel extends StatelessWidget {
 
   static EdgeInsetsGeometry widgetPadding(NewsletterStudioStyle style) {
     return style.panelPadding;
+  }
+}
+
+class _SlideToSend extends StatefulWidget {
+  const _SlideToSend({
+    required this.label,
+    required this.accessibleActionLabel,
+    required this.colors,
+    required this.onComplete,
+    this.warning = false,
+    this.enabled = true,
+  });
+
+  final String label;
+  final String accessibleActionLabel;
+  final NewsletterStudioColors colors;
+  final Future<void> Function() onComplete;
+  final bool warning;
+  final bool enabled;
+
+  @override
+  State<_SlideToSend> createState() => _SlideToSendState();
+}
+
+class _SlideToSendState extends State<_SlideToSend> {
+  double _value = 0;
+  bool _locked = false;
+
+  Future<void> _activate() async {
+    if (!widget.enabled || _locked) return;
+    setState(() => _locked = true);
+    try {
+      await widget.onComplete();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _locked = false;
+          _value = 0;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final actionColor = widget.warning
+        ? widget.colors.warning
+        : widget.colors.primaryActionSurface;
+    final foreground = widget.warning
+        ? widget.colors.foreground
+        : widget.colors.primaryActionForeground;
+    final enabled = widget.enabled && !_locked;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          container: true,
+          label: widget.label,
+          value: _value >= 0.98
+              ? 'Prêt à confirmer'
+              : 'Glissement ${(_value * 100).round()} pour cent',
+          hint:
+              'Faites glisser le curseur jusqu’au bout pour ouvrir la confirmation.',
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: actionColor,
+              inactiveTrackColor: widget.colors.divider,
+              thumbColor: actionColor,
+              overlayColor: actionColor.withValues(alpha: 0.12),
+              trackHeight: 8,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 16),
+            ),
+            child: Slider(
+              value: _value,
+              min: 0,
+              max: 1,
+              divisions: 24,
+              semanticFormatterCallback: (value) =>
+                  '${widget.label} : ${(value * 100).round()} pour cent',
+              onChanged: enabled
+                  ? (value) => setState(() => _value = value)
+                  : null,
+              onChangeEnd: enabled
+                  ? (value) {
+                      if (value >= 0.98) {
+                        _activate();
+                      } else {
+                        setState(() => _value = 0);
+                      }
+                    }
+                  : null,
+            ),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: enabled ? _activate : null,
+          icon: Icon(
+            widget.warning ? Icons.warning_amber_outlined : Icons.send,
+          ),
+          label: Text(widget.accessibleActionLabel),
+          style: TextButton.styleFrom(foregroundColor: foreground),
+        ),
+      ],
+    );
   }
 }
 
@@ -2790,6 +3147,253 @@ class _ReviewSummaryCard extends StatelessWidget {
       title: Text(label),
       subtitle: Text(value),
       trailing: action,
+    );
+  }
+}
+
+class _LinkReviewCard extends StatelessWidget {
+  const _LinkReviewCard({
+    required this.report,
+    required this.reportCurrent,
+    required this.checkBusy,
+    required this.checkError,
+    required this.canCheck,
+    required this.onCheck,
+    required this.onOpenBlock,
+    required this.style,
+    required this.colors,
+  });
+
+  final NewsletterLinkCheckReport? report;
+  final bool reportCurrent;
+  final bool checkBusy;
+  final String? checkError;
+  final bool canCheck;
+  final Future<void> Function()? onCheck;
+  final ValueChanged<String> onOpenBlock;
+  final NewsletterStudioStyle style;
+  final NewsletterStudioColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = reportCurrent ? report!.status : null;
+    final color = switch (status) {
+      NewsletterLinkReportStatus.clear => colors.success,
+      NewsletterLinkReportStatus.blocked => colors.danger,
+      NewsletterLinkReportStatus.uncertain => colors.warning,
+      null => colors.mutedForeground,
+    };
+    final title = checkBusy
+        ? 'Vérification des liens…'
+        : !reportCurrent
+        ? 'Liens non vérifiés pour cette version'
+        : status == NewsletterLinkReportStatus.clear
+        ? report!.findings.isEmpty
+              ? 'Aucun lien à vérifier'
+              : '${report!.validCount} lien(s) valides'
+        : status == NewsletterLinkReportStatus.blocked
+        ? '${report!.blockingCount} lien(s) à corriger'
+        : '${report!.uncertainCount} lien(s) non vérifiés';
+    final disclosure = report?.disclosure;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.subtleSurface,
+        borderRadius: BorderRadius.circular(style.panelRadius),
+        border: Border.all(color: colors.divider),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(style.panelRadius),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: style.panelPadding,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    status == NewsletterLinkReportStatus.clear
+                        ? Icons.link
+                        : status == NewsletterLinkReportStatus.blocked
+                        ? Icons.link_off
+                        : Icons.link_outlined,
+                    color: color,
+                  ),
+                  SizedBox(width: style.smallGap),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Liens',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        SizedBox(height: style.smallGap / 2),
+                        Text(title, style: TextStyle(color: color)),
+                        if (reportCurrent && report!.findings.isNotEmpty)
+                          Text(
+                            '${report!.validCount} valides · ${report!.blockingCount} bloquants · ${report!.uncertainCount} incertains',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        if (disclosure?.externalRequests == true &&
+                            reportCurrent)
+                          Padding(
+                            padding: EdgeInsets.only(top: style.smallGap / 2),
+                            child: Text(
+                              'Requêtes externes effectuées. Un GET de secours limité peut avoir un effet sur la destination.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: canCheck ? onCheck : null,
+                    icon: checkBusy
+                        ? SizedBox(
+                            width: style.compactIconSize,
+                            height: style.compactIconSize,
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(reportCurrent ? 'Revérifier' : 'Vérifier'),
+                  ),
+                ],
+              ),
+            ),
+            if (checkError != null)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  style.panelPadding.horizontal / 2,
+                  0,
+                  style.panelPadding.horizontal / 2,
+                  style.smallGap,
+                ),
+                child: Text(
+                  checkError!,
+                  style: TextStyle(color: colors.danger),
+                ),
+              ),
+            if (reportCurrent && report!.findings.isNotEmpty)
+              Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.symmetric(
+                    horizontal: style.panelPadding.horizontal / 2,
+                  ),
+                  childrenPadding: EdgeInsets.fromLTRB(
+                    style.panelPadding.horizontal / 2,
+                    0,
+                    style.panelPadding.horizontal / 2,
+                    style.smallGap,
+                  ),
+                  title: Text(
+                    '${report!.findings.length} destinations contrôlées',
+                  ),
+                  children: [
+                    for (final finding in report!.findings)
+                      _LinkFindingTile(
+                        finding: finding,
+                        colors: colors,
+                        style: style,
+                        onOpenBlock: onOpenBlock,
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LinkFindingTile extends StatelessWidget {
+  const _LinkFindingTile({
+    required this.finding,
+    required this.colors,
+    required this.style,
+    required this.onOpenBlock,
+  });
+
+  final NewsletterLinkFinding finding;
+  final NewsletterStudioColors colors;
+  final NewsletterStudioStyle style;
+  final ValueChanged<String> onOpenBlock;
+
+  @override
+  Widget build(BuildContext context) {
+    final blocker =
+        finding.status == NewsletterLinkFindingStatus.broken ||
+        finding.status == NewsletterLinkFindingStatus.staticBlocker;
+    final uncertain = finding.status == NewsletterLinkFindingStatus.uncertain;
+    final color = blocker
+        ? colors.danger
+        : uncertain
+        ? colors.warning
+        : colors.success;
+    final reason = switch (finding.reason) {
+      'missing_url' => 'URL manquante',
+      'invalid_url' => 'URL invalide',
+      'https_443_required' => 'HTTPS sur le port 443 requis',
+      'credentials_not_allowed' => 'Identifiants interdits dans l’URL',
+      'placeholder_url' => 'Destination provisoire',
+      'anchor_link' =>
+        'Lien d’ancre non pris en charge par la plupart des clients email',
+      'timeout' ||
+      'dns_timeout' ||
+      'check_deadline' => 'Délai de vérification dépassé',
+      'non_public_address' => 'Destination non publique refusée',
+      'too_many_redirects' => 'Trop de redirections',
+      _ when finding.httpStatus != null => 'Réponse HTTP ${finding.httpStatus}',
+      _ => finding.reason ?? 'Résultat non vérifié',
+    };
+    final destination = finding.host.isEmpty
+        ? 'Destination absente'
+        : finding.host;
+    return Padding(
+      padding: EdgeInsets.only(bottom: style.smallGap),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              blocker
+                  ? Icons.error_outline
+                  : uncertain
+                  ? Icons.warning_amber_outlined
+                  : Icons.check_circle_outline,
+              color: color,
+            ),
+            title: Text(
+              destination,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(reason),
+            trailing: Text('${finding.blockIds.length} bloc(s)'),
+          ),
+          Wrap(
+            spacing: style.smallGap,
+            children: [
+              for (final blockId in finding.blockIds)
+                TextButton.icon(
+                  onPressed: () => onOpenBlock(blockId),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: Text('Corriger le lien · $blockId'),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

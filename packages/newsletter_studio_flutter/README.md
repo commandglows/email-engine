@@ -25,6 +25,7 @@ NewsletterStudio(
   onSaveDraft: saveDraft,
   onResolveAudience: resolveEligibleAudience,
   onValidateDraft: validateOnServer,
+  onCheckLinks: checkSavedRevisionLinks,
   onRenderPreview: renderProviderNeutralPreview,
   onSendTest: requestTestDelivery,
   onSchedule: requestSchedule,
@@ -51,6 +52,15 @@ optimistic working copy, reports every edit through `onDraftChanged`, and can
 debounce `onSaveDraft`. Revision-aware test receipts become stale as soon as
 the draft changes. Local checks are merged with authoritative host validation
 before the review drawer opens.
+
+Link checking is a separate operator-triggered hook. Review shows the external
+request and possible bounded-GET side-effect disclosure before invoking
+`onCheckLinks`; opening review never contacts destinations. The host returns a
+typed, revision-bound report. The widget blocks approval on missing/stale or
+incomplete reports and definite link errors, and requires a distinct explicit
+override action for uncertain outcomes. Findings navigate by stable block ID
+and focus the corresponding URL field. The host remains responsible for
+server-side authorization and approval enforcement.
 
 `onSchedule` and `onSend` are reachable only after review and a second explicit
 confirmation. Keyboard commands can open review but never trigger either

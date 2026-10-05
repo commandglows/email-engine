@@ -181,10 +181,77 @@ void main() {
       session.save(second),
     ]);
     expect(expected, [1, 2]);
-    expect(saves.last.revision, 11);
+    expect(saves.last.revision, 3);
     expect(saves.last.saveState, NewsletterSaveState.saved);
     expect(session.version, 3);
   });
+
+  test(
+    'link check follows the authoritative version after edited content saves',
+    () async {
+      final requests = <http.Request>[];
+      final api = CentralEmailApi(
+        origin: Uri.parse('https://example.test'),
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path.endsWith('/save')) {
+            expect((jsonDecode(request.body) as Map)['expected_version'], 1);
+            return http.Response(
+              jsonEncode({'campaign': campaign(version: 2)}),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/links/check')) {
+            expect(jsonDecode(request.body), {
+              'business_id': 'studio',
+              'expected_version': 2,
+            });
+            return http.Response(
+              jsonEncode({
+                'link_report': {
+                  '_id': 'link-report-v2',
+                  'campaignId': 'campaign-a',
+                  'versionId': 'campaign-a:2',
+                  'revision': 2,
+                  'destinationDigest': 'digest-v2',
+                  'checkedAt': DateTime.now().millisecondsSinceEpoch,
+                  'expiresAt': DateTime.now().millisecondsSinceEpoch + 600000,
+                  'status': 'clear',
+                  'blockingCount': 0,
+                  'uncertainCount': 0,
+                  'validCount': 0,
+                  'findings': <Object>[],
+                },
+                'disclosure': {
+                  'external_requests': true,
+                  'possible_destination_side_effect': true,
+                  'method_policy': 'HEAD then bounded GET after 405/501',
+                },
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+      final session = CampaignEditorSession(
+        api,
+        business,
+        campaign(version: 1),
+      );
+      final edited = session.draft.copyWith(subject: 'Changed subject');
+      final report = await session.checkLinks(edited);
+
+      expect(session.version, 2);
+      expect(report.revision, 2);
+      expect(report.serverRevision, 2);
+      expect(report.isCurrentFor(edited.copyWith(revision: 2)), isTrue);
+      expect(requests.map((request) => request.url.path.split('/').last), [
+        'save',
+        'check',
+      ]);
+    },
+  );
 
   test(
     'campaign list consumes the HTTP campaign shape and paused mapping',
@@ -245,11 +312,52 @@ void main() {
               200,
             );
           }
+          if (path.endsWith('/links/check')) {
+            expect(
+              request.url.path,
+              '/api/admin/email/campaigns/campaign-a/links/check',
+            );
+            expect(jsonDecode(request.body), {
+              'business_id': 'studio',
+              'expected_version': 2,
+            });
+            expect(request.body, isNot(contains('https://')));
+            return http.Response(
+              jsonEncode({
+                'link_report': {
+                  '_id': 'link-report-fresh',
+                  'campaignId': 'campaign-a',
+                  'versionId': 'campaign-a:2',
+                  'revision': 2,
+                  'destinationDigest': 'digest-123',
+                  'requestKey': 'opaque-key',
+                  'checkedBy': 'operator',
+                  'checkedAt': DateTime.now().millisecondsSinceEpoch,
+                  'expiresAt': DateTime.now().millisecondsSinceEpoch + 600000,
+                  'status': 'clear',
+                  'blockingCount': 0,
+                  'uncertainCount': 0,
+                  'validCount': 0,
+                  'findings': <Object>[],
+                },
+                'disclosure': {
+                  'external_requests': true,
+                  'possible_destination_side_effect': true,
+                  'method_policy': 'HEAD first; bounded GET after 405/501',
+                },
+              }),
+              200,
+            );
+          }
           if (path.endsWith('/challenge')) {
             return http.Response(
               jsonEncode({
                 'campaign': campaign(version: 2),
-                'challenge': {'id': 'challenge-issued'},
+                'challenge': {
+                  'id': 'challenge-issued',
+                  'report_id': 'report-fresh',
+                  'link_report_id': 'link-report-fresh',
+                },
               }),
               200,
             );
@@ -267,6 +375,8 @@ void main() {
       final draft = session.draft;
       await session.resolve(draft);
       expect(session.preflightIssues(), isEmpty);
+      final linkReport = await session.checkLinks(draft);
+      expect(linkReport.status, NewsletterLinkReportStatus.clear);
       await session.approve(draft);
 
       final challengeRequest = requests.singleWhere(
@@ -275,6 +385,7 @@ void main() {
       final challengeBody = jsonDecode(challengeRequest.body) as Map;
       expect(challengeBody['action'], 'approve');
       expect(challengeBody['report_id'], 'report-fresh');
+      expect(challengeBody['link_report_id'], 'link-report-fresh');
       expect(challengeBody['expected_version'], 2);
       final approveRequest = requests.singleWhere(
         (r) => r.url.path.endsWith('/approve'),
@@ -284,6 +395,7 @@ void main() {
         'expected_version': 2,
         'review_id': 'campaign-a:2',
         'report_id': 'report-fresh',
+        'link_report_id': 'link-report-fresh',
         'challenge_id': 'challenge-issued',
       });
     },
@@ -358,6 +470,107 @@ void main() {
       expect(resumeBody['report_id'], 'report-after-pause');
     },
   );
+
+  test('uncertain links require the audited override challenge', () async {
+    final requests = <http.Request>[];
+    final api = CentralEmailApi(
+      origin: Uri.parse('https://example.test'),
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('/save')) {
+          return http.Response(
+            jsonEncode({'campaign': campaign(version: 2)}),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/review')) {
+          return http.Response(
+            jsonEncode({
+              'campaign': campaign(version: 2),
+              'review': {
+                'id': 'review-a2',
+                'version': 2,
+                'eligible_count': 1,
+                'complete': true,
+                'report_id': 'preflight-a2',
+                'expires_at': DateTime.now().millisecondsSinceEpoch + 600000,
+                'blocking_checks': <Object>[],
+              },
+            }),
+            200,
+          );
+        }
+        final body = jsonDecode(request.body) as Map;
+        if (request.url.path.endsWith('/challenge')) {
+          expect(body['action'], 'approve_link_override');
+          expect(body['link_report_id'], 'links-a2');
+          return http.Response(
+            jsonEncode({
+              'campaign': campaign(version: 2),
+              'challenge': {
+                'id': 'challenge-override',
+                'report_id': 'preflight-a2',
+                'link_report_id': 'links-a2',
+              },
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/approve')) {
+          expect(body['link_report_id'], 'links-a2');
+          expect(body['override_link_report_id'], 'links-a2');
+          expect(body['challenge_id'], 'challenge-override');
+          return http.Response(
+            jsonEncode({'campaign': campaign(version: 2, state: 'sending')}),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    final session = CampaignEditorSession(api, business, campaign(version: 2));
+    final draft = session.draft;
+    await session.resolve(draft);
+    session.linkReport = NewsletterLinkCheckReport(
+      id: 'links-a2',
+      campaignId: draft.id,
+      revision: draft.revision,
+      serverRevision: 2,
+      destinationDigest: 'digest-a2',
+      checkedAt: DateTime.now(),
+      expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+      status: NewsletterLinkReportStatus.uncertain,
+      blockingCount: 0,
+      uncertainCount: 1,
+      validCount: 0,
+      findings: const [
+        NewsletterLinkFinding(
+          blockIds: ['button-a'],
+          host: 'destination.example',
+          status: NewsletterLinkFindingStatus.uncertain,
+          reason: 'timeout',
+        ),
+      ],
+      disclosure: const NewsletterLinkCheckDisclosure(
+        externalRequests: true,
+        possibleDestinationSideEffect: true,
+        methodPolicy: 'HEAD; bounded GET only on 405/501',
+      ),
+    );
+    await expectLater(
+      session.approve(draft),
+      throwsA(isA<EmailApiException>()),
+    );
+    expect(
+      requests.where((request) => request.url.path.endsWith('/challenge')),
+      isEmpty,
+    );
+    await session.approveWithLinkReport(draft, overrideUncertainLinks: true);
+    expect(
+      requests.map((request) => request.url.path.split('/').last),
+      containsAllInOrder(['challenge', 'approve']),
+    );
+  });
 
   test(
     'pause is a distinct stop and reduction sends only opaque references',

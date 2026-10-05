@@ -137,6 +137,8 @@ class EmailApiException implements Exception {
       'Vérifiez le contenu, l’audience et la date de la campagne.',
     'invalid_state' || 'review_required' =>
       'La campagne doit être revue à nouveau avant cet envoi.',
+    'link_check_required' =>
+      'Vérifiez les liens de cette version avant de programmer ou d’envoyer.',
     'preflight_blocked' =>
       'Le préflight bloque cette action. Actualisez le contrôle et consultez les contrôles manquants.',
     'human_authority_required' || 'challenge_rejected' =>

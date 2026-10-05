@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Add explicit, disclosed saved-revision link checks to campaign review, with
+  blocker/uncertain states, auditable override callbacks and stable block-to-URL
+  focus navigation.
 - Add shared email cockpit navigation and an ordered Sources / Service client /
   Diffusion dashboard, with lazy retained workspaces across responsive layouts.
 - Add provider-neutral support conversations, statuses, OAuth connection hook,

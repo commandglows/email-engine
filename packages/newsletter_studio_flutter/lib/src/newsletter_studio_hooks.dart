@@ -15,6 +15,8 @@ typedef NewsletterDraftValidator =
       NewsletterDraft draft,
       NewsletterAudienceSummary? audience,
     );
+typedef NewsletterLinkChecker =
+    Future<NewsletterLinkCheckReport> Function(NewsletterDraft draft);
 typedef NewsletterPreviewRenderer =
     Future<NewsletterPreview> Function(
       NewsletterDraft draft,
@@ -27,6 +29,19 @@ typedef NewsletterScheduler =
       NewsletterDraft draft,
       NewsletterSchedule schedule,
     );
+typedef NewsletterLinkReportSender =
+    Future<NewsletterOperationReceipt> Function(
+      NewsletterDraft draft,
+      NewsletterLinkCheckReport report, {
+      required bool overrideUncertain,
+    });
+typedef NewsletterLinkReportScheduler =
+    Future<NewsletterOperationReceipt> Function(
+      NewsletterDraft draft,
+      NewsletterSchedule schedule,
+      NewsletterLinkCheckReport report, {
+      required bool overrideUncertain,
+    });
 typedef NewsletterSender =
     Future<NewsletterOperationReceipt> Function(NewsletterDraft draft);
 typedef NewsletterUnscheduler = Future<void> Function(String draftId);

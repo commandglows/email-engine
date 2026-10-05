@@ -40,6 +40,15 @@ The backend and frontend must use the campaign API contract documented in
 CommandGlows `shipglows_data/technical/newsletter-campaign-api.md`. The email
 ledger and transport retain their existing pilot activation and allowlist gates.
 
+Campaign review exposes an explicit link-check action through the same-origin
+admin API. The client sends only the configured business and saved campaign
+version to `campaigns/{id}/links/check`; the server extracts authored links,
+stores a redacted revision-bound report and returns the GET-side-effect
+disclosure. Approval and scheduling bind that report to the existing review and
+single-use challenge. Uncertain links use the separate `approve_link_override`
+challenge and audited override field; stale, incomplete or blocked reports are
+rejected by the client and remain subject to server enforcement.
+
 **Integration status (2026-09-23):** the local API adapts Convex list/detail
 responses to Flutter's campaign models and maps `paused` to `suspended` and
 worker states to `sending`. Approval and resume obtain a short-lived server

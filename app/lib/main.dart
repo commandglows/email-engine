@@ -530,6 +530,7 @@ class _CampaignEditorState extends State<_CampaignEditor> {
           schedule: _schedule,
           onScheduleChanged: (value) => setState(() => _schedule = value),
           testReceipt: _test,
+          linkReport: session.linkReport,
           capabilities: NewsletterStudioCapabilities(
             canEdit: editable,
             canPreview: !_busy,
@@ -553,18 +554,28 @@ class _CampaignEditorState extends State<_CampaignEditor> {
           // The studio adopts onResolveAudience before checking blockers.
           onValidateDraft: (draft, audience) async =>
               widget.session.preflightIssues(),
+          onCheckLinks: session.checkLinks,
           onRenderPreview: session.preview,
           onSendTest: _sendTest,
-          onSend: (draft) async {
-            final receipt = await session.approve(draft);
-            if (mounted) setState(() {});
-            return receipt;
-          },
-          onSchedule: (draft, schedule) async {
-            final receipt = await session.approve(draft, schedule);
-            if (mounted) setState(() {});
-            return receipt;
-          },
+          onSendWithLinkReport:
+              (draft, report, {required overrideUncertain}) async {
+                final receipt = await session.approveWithLinkReport(
+                  draft,
+                  overrideUncertainLinks: overrideUncertain,
+                );
+                if (mounted) setState(() {});
+                return receipt;
+              },
+          onScheduleWithLinkReport:
+              (draft, schedule, report, {required overrideUncertain}) async {
+                final receipt = await session.approveWithLinkReport(
+                  draft,
+                  schedule: schedule,
+                  overrideUncertainLinks: overrideUncertain,
+                );
+                if (mounted) setState(() {});
+                return receipt;
+              },
           onUnschedule: (_) async {
             await session.cancel();
             if (mounted) setState(() {});
