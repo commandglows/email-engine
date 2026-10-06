@@ -13,10 +13,7 @@ dependencies:
   flutter:
     sdk: flutter
   shipglows_flutter_zoom:
-    git:
-      url: https://github.com/commandglows/email-sidebar-app.git
-      ref: 2b8b751
-      path: packages/shipglows_flutter_zoom
+    path: ../shipglows_flutter_zoom
 
 dev_dependencies:
   flutter_test:
