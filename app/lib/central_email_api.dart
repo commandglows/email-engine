@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 /// Same-origin session client. It never accepts a provider or service credential.
@@ -26,7 +27,12 @@ class CentralEmailApi {
   final http.Client _client;
   static const timeout = Duration(seconds: 20);
   static const maxResponseBytes = 1024 * 1024;
+  static const maxPendingCommands = 128;
   final Map<String, String> _pendingKeys = {};
+  final List<int> _intentFingerprintKey = List.generate(
+    32,
+    (_) => Random.secure().nextInt(256),
+  );
 
   static String _key() {
     final random = Random.secure();
@@ -59,15 +65,23 @@ class CentralEmailApi {
     );
     final encoded = body == null ? '' : jsonEncode(body);
     final intent = '$method:$path:$encoded';
+    final intentFingerprint = Hmac(
+      sha256,
+      _intentFingerprintKey,
+    ).convert(utf8.encode(intent)).toString();
     final abort = Completer<void>();
     final request =
         http.AbortableRequest(method, uri, abortTrigger: abort.future)
           ..followRedirects = false
           ..headers['Accept'] = 'application/json';
     if (body != null) {
+      if (!_pendingKeys.containsKey(intentFingerprint) &&
+          _pendingKeys.length >= maxPendingCommands) {
+        throw const EmailApiException('pending_commands_limit');
+      }
       request.headers['Content-Type'] = 'application/json';
       request.headers['Idempotency-Key'] = _pendingKeys.putIfAbsent(
-        intent,
+        intentFingerprint,
         _key,
       );
       request.body = encoded;
@@ -76,6 +90,7 @@ class CentralEmailApi {
     try {
       final response = await _client.send(request);
       if (response.statusCode >= 300 && response.statusCode < 400) {
+        if (method == 'POST') _pendingKeys.remove(intentFingerprint);
         throw const EmailApiException('auth_required');
       }
       final bytes = <int>[];
@@ -86,9 +101,11 @@ class CentralEmailApi {
         bytes.addAll(chunk);
       }
       if (response.statusCode == 401) {
+        if (method == 'POST') _pendingKeys.remove(intentFingerprint);
         throw const EmailApiException('auth_required');
       }
       if (response.statusCode == 403) {
+        if (method == 'POST') _pendingKeys.remove(intentFingerprint);
         throw const EmailApiException('forbidden');
       }
       Map<String, dynamic> payload;
@@ -100,10 +117,12 @@ class CentralEmailApi {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final error = payload['error'];
         final code = error is Map ? error['code'] : error;
-        if (response.statusCode < 500) _pendingKeys.remove(intent);
+        if (response.statusCode < 500) {
+          _pendingKeys.remove(intentFingerprint);
+        }
         throw EmailApiException(code is String ? code : 'service_unavailable');
       }
-      _pendingKeys.remove(intent);
+      _pendingKeys.remove(intentFingerprint);
       return payload;
     } on EmailApiException {
       rethrow;
@@ -118,7 +137,11 @@ class CentralEmailApi {
     }
   }
 
-  void close() => _client.close();
+  void close() {
+    _client.close();
+    _pendingKeys.clear();
+    _intentFingerprintKey.fillRange(0, _intentFingerprintKey.length, 0);
+  }
 }
 
 class EmailApiException implements Exception {
@@ -151,6 +174,8 @@ class EmailApiException implements Exception {
       'Le registre d’incidents n’est pas disponible pour cette campagne.',
     'rate_limited' =>
       'Trop de demandes rapprochées. Attendez un instant avant de réessayer.',
+    'pending_commands_limit' =>
+      'Trop d’actions ont un résultat incertain. Vérifiez leur état avant de recharger l’application et de reprendre.',
     _ =>
       'Le service est momentanément indisponible. Vos modifications restent dans l’éditeur.',
   };

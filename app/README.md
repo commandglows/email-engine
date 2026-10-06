@@ -34,7 +34,12 @@ for session authentication. No recipient data is baked into the artifact.
 The application loads server-configured businesses, audiences and permitted test
 recipients. Missing authorization or configuration produces an explicit error;
 there is no fallback to example data. Every mutation has an idempotency key. A lost
-response is not automatically retried. Reload campaign status before a new intent.
+response is not automatically retried. For an ambiguous POST, the current API
+client instance retains a keyed HMAC fingerprint and idempotency key, not the
+serialized request body, so retrying that exact command reuses its key. Successful
+and known-rejected responses release the entry. The client holds at most 128
+distinct pending commands; at the limit, further writes fail closed. Reconcile
+their status before reloading the app or starting a new intent.
 
 The backend and frontend must use the campaign API contract documented in
 CommandGlows `shipglows_data/technical/newsletter-campaign-api.md`. The email
