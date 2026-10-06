@@ -4,9 +4,7 @@ import 'package:source_sidebar_flutter/source_sidebar_flutter.dart';
 import 'package:source_sidebar_preview/main.dart';
 
 void main() {
-  testWidgets('one inbox opens support in the shared reader', (
-    tester,
-  ) async {
+  testWidgets('one inbox opens support in the shared reader', (tester) async {
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
