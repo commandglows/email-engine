@@ -12,17 +12,15 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SourceSidebarPreviewApp());
+    await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
     expect(find.text('Sources'), findsOneWidget);
-    expect(find.text('Categories'), findsOneWidget);
+    expect(find.text('Tags'), findsOneWidget);
     expect(find.text('Cybersecurity'), findsOneWidget);
 
     await tester.tap(find.textContaining('Designing resilient').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Send to project'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('demo-processed'), findsOneWidget);
+    expect(find.text('Send to project'), findsNothing);
+    expect(find.byTooltip('Send to projects'), findsOneWidget);
   });
 
   testWidgets('offers a compact list before a source is selected', (
@@ -33,7 +31,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SourceSidebarPreviewApp());
+    await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
 
     expect(find.text('Sources'), findsOneWidget);
     expect(find.byTooltip('Source filters'), findsOneWidget);
@@ -46,7 +44,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SourceSidebarPreviewApp());
+    await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
     await tester.pump();
     await tester.sendKeyEvent(LogicalKeyboardKey.keyJ);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
@@ -63,7 +61,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SourceSidebarPreviewApp());
+    await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
     await tester.sendKeyEvent(LogicalKeyboardKey.bracketRight);
     await tester.pumpAndSettle();
     expect(find.textContaining('Switched to Research account'), findsOneWidget);
@@ -86,7 +84,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SourceSidebarPreviewApp());
+    await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
     await tester.sendKeyEvent(LogicalKeyboardKey.keyJ);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
@@ -118,7 +116,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SourceSidebarPreviewApp());
+    await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
     await tester.sendKeyEvent(LogicalKeyboardKey.keyJ);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
@@ -139,20 +137,17 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SourceSidebarPreviewApp());
+    await tester.pumpWidget(const SourceSidebarPreviewApp(showCockpit: false));
     await tester.tap(find.byTooltip('Open Newsletter Studio'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Health Signals · Weekly draft'), findsOneWidget);
-    expect(find.text('Review and schedule'), findsOneWidget);
+    expect(find.text('Health Signals · Weekly draft'), findsWidgets);
+    expect(find.text('Vérifier et programmer'), findsOneWidget);
     expect(find.text('Sources'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Preview (Ctrl/Command+P)'));
+    await tester.tap(find.byTooltip('Aperçu (Ctrl/Commande+P)'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('does not prove received-client rendering'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Vérifiez le rendu final'), findsOneWidget);
   });
 }

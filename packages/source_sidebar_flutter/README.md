@@ -121,3 +121,11 @@ other Flutter applications can adopt the same tested viewport independently.
 Hosts can configure `minimumZoom`, `maximumZoom`, `initialZoom`, and `zoomStep`
 through `SourceSidebarStyle`. They can replace or disable the reset shortcut
 through `SourceSidebarShortcuts.resetZoom`.
+# Unified email groups
+
+Hosts can reuse the existing dense rows and reader across providers using
+`itemSectionIds` and ordered `sectionLabels`. `navigationHeader` inserts facet
+links into the existing sidebar. `sectionKeys` supplies scroll anchors;
+`sectionEmptyMessages` keeps individual empty/error states visible.
+`readerFooter` adds contextual actions without creating another reader.
+Without grouping, the original Sources behavior is unchanged.

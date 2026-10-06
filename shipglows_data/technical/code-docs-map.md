@@ -69,6 +69,21 @@ An unmatched tracked code area is `needs review` until this map is extended.
 | `analysis_options.yaml`, `**/analysis_options.yaml` | Static-analysis policy | This map | Package README only if consumer-visible requirements change | Rule-set, exclusion, or analyzer invocation changes | Run `flutter analyze` in every affected package/app |
 | `.github/**` | Repository automation | Root `README.md` when validation or delivery claims change | This map | CI checks, release behavior, supported validation, permissions, or artifact handling changes | Validate workflow syntax and observe the corresponding authorized CI run |
 
+## Campaign Integration Coverage
+
+Cockpit and support: `packages/newsletter_studio_flutter/lib/src/email_cockpit.dart`
+and `support_*.dart` map to the package README/CHANGELOG and design authority.
+`app/lib/source_workspace.dart` and `support_repository.dart` map to app/README
+and the CommandGlows Reader/support API contract. `demo/lib/support_demo_repository.dart`
+is explicitly synthetic and maps to the root README. No real mailbox content is
+an allowed demonstration fixture.
+
+Additional campaign scope: `app/**` maps to `app/README.md`, with the newsletter
+package README and CommandGlows campaign API contract as integration references.
+Validate with the app analyzer/tests and the CI web artifact. The local artifact
+installer `scripts/install-operator-web.ps1` maps to the same app README; verify
+its exact source/target and installed index. Neither path implies deployment.
+
 ## Explicit Non-Coverage
 
 | Path family | Reason |

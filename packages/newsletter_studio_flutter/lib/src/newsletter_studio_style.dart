@@ -65,8 +65,14 @@ class NewsletterStudioStyle {
     this.topBarHeight = 64,
     this.compactActionBarHeight = 64,
     this.panelPadding = const EdgeInsets.all(16),
-    this.canvasPadding = const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-    this.blockPadding = const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+    this.canvasPadding = const EdgeInsets.symmetric(
+      horizontal: 28,
+      vertical: 24,
+    ),
+    this.blockPadding = const EdgeInsets.symmetric(
+      horizontal: 20,
+      vertical: 14,
+    ),
     this.smallGap = 8,
     this.mediumGap = 12,
     this.largeGap = 16,

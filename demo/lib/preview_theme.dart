@@ -75,12 +75,14 @@ abstract final class PreviewTheme {
       name: 'ShipGlows',
       color: Color(0xFF0B57D0),
       icon: Icons.rocket_launch_outlined,
+      kind: SourceCategoryKind.project,
     ),
     SourceCategory(
       id: 'contentglows-ready',
       name: 'ContentGlows',
       color: Color(0xFF7B1FA2),
       icon: Icons.auto_stories_outlined,
+      kind: SourceCategoryKind.project,
     ),
     SourceCategory(
       id: 'security',
@@ -102,12 +104,14 @@ abstract final class PreviewTheme {
       name: 'ShipGlows',
       color: Color(0xFFA8C7FA),
       icon: Icons.rocket_launch_outlined,
+      kind: SourceCategoryKind.project,
     ),
     SourceCategory(
       id: 'contentglows-ready',
       name: 'ContentGlows',
       color: Color(0xFFE1BEE7),
       icon: Icons.auto_stories_outlined,
+      kind: SourceCategoryKind.project,
     ),
     SourceCategory(
       id: 'security',

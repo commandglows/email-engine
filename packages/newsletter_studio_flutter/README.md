@@ -25,6 +25,7 @@ NewsletterStudio(
   onSaveDraft: saveDraft,
   onResolveAudience: resolveEligibleAudience,
   onValidateDraft: validateOnServer,
+  onCheckLinks: checkSavedRevisionLinks,
   onRenderPreview: renderProviderNeutralPreview,
   onSendTest: requestTestDelivery,
   onSchedule: requestSchedule,
@@ -51,6 +52,15 @@ optimistic working copy, reports every edit through `onDraftChanged`, and can
 debounce `onSaveDraft`. Revision-aware test receipts become stale as soon as
 the draft changes. Local checks are merged with authoritative host validation
 before the review drawer opens.
+
+Link checking is a separate operator-triggered hook. Review shows the external
+request and possible bounded-GET side-effect disclosure before invoking
+`onCheckLinks`; opening review never contacts destinations. The host returns a
+typed, revision-bound report. The widget blocks approval on missing/stale or
+incomplete reports and definite link errors, and requires a distinct explicit
+override action for uncertain outcomes. Findings navigate by stable block ID
+and focus the corresponding URL field. The host remains responsible for
+server-side authorization and approval enforcement.
 
 `onSchedule` and `onSend` are reachable only after review and a second explicit
 confirmation. Keyboard commands can open review but never trigger either
@@ -88,3 +98,43 @@ continues to operate independently.
 The in-app preview is intentionally marked approximate. Received-client HTML,
 dark-mode behavior, remote-image policy, unsubscribe behavior, and
 deliverability require separate backend and inbox proof.
+
+## Campaign workspace
+
+`CampaignWorkspace(repository: repository, onOpenCampaign: openCampaign)` lists
+bounded pages of 25 campaigns, filters status, creates a named draft and delegates
+opening to the host. Optional `businessLabel`, `onBack`, `canCreate` and
+`disabledReason` support a scoped operator host. `NewsletterCampaignRepository`
+contains only `list({cursor, status, limit})` and `create({required title})`.
+The host must enforce these limits and business scope; presentation is not an
+access-control boundary. Failed creation asks the operator to refresh before
+retrying an outcome that may be ambiguous.
+
+The studio accepts controlled `availableAudiences`, `onAudienceChanged` and
+`onScheduleChanged`. The schedule picker converts local device time to an explicit
+UTC instant. Supply `canEdit: false` for immutable campaigns, and disable send/test
+capabilities when configuration is unavailable. Button blocks expose HTTPS links.
+
+Autosave serializes writes, coalesces edits received during a write, and carries
+the returned revision into the next snapshot. Return the authoritative revision
+from `onSaveDraft`. Throw `NewsletterSaveConflict` for optimistic concurrency
+failure; the UI retains edits and stops writes until a server reload. Other
+failures retain the draft and show a generic recovery message. Test and review
+wait for saved content. Every content change invalidates the local test receipt.
+Host callbacks must still validate revisions, consent and idempotency server-side.
+
+Labels are French, including campaign delivery states. Submitted and unknown are
+separate from delivered and failed; provider acceptance is not inbox delivery.
+The preview remains approximate and must not be described as email-client proof.
+
+Validation: `flutter analyze` and `flutter test` from this package. Widget coverage
+includes bounded paging, redacted failure recovery, narrow dark layouts with large
+text, disabled creation, serialized saves, keyboard navigation and send review.
+# Shared cockpit and service client
+
+`EmailCockpit` owns navigation and lazily retains visited workspaces. Its builder
+receives `EmailSection.sources`, `support` or `diffusion`. It keeps child state
+through responsive reparenting; it does not fetch or authenticate providers.
+`SupportWorkspace(repository:, onConnect:)` owns the conversation journey.
+Hosts implement `SupportRepository`; never pass OAuth tokens to presentation.
+Unknown reply outcomes block repeated sends; successful submission is not delivery.

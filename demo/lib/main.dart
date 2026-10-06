@@ -3,11 +3,14 @@ import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 import 'package:source_sidebar_flutter/source_sidebar_flutter.dart';
 
 import 'preview_theme.dart';
+import 'campaign_demo_repository.dart';
+import 'support_demo_repository.dart';
 
 void main() => runApp(const SourceSidebarPreviewApp());
 
 class SourceSidebarPreviewApp extends StatefulWidget {
-  const SourceSidebarPreviewApp({super.key});
+  const SourceSidebarPreviewApp({super.key, this.showCockpit = true});
+  final bool showCockpit;
 
   @override
   State<SourceSidebarPreviewApp> createState() =>
@@ -16,16 +19,19 @@ class SourceSidebarPreviewApp extends StatefulWidget {
 
 class _SourceSidebarPreviewAppState extends State<SourceSidebarPreviewApp> {
   ThemeMode _themeMode = ThemeMode.light;
+  final _campaigns = CampaignDemoRepository();
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Sources — Flutter preview',
+      title: 'ShipGlows · Email Engine',
       theme: PreviewTheme.light(),
       darkTheme: PreviewTheme.dark(),
       themeMode: _themeMode,
       home: SourceLibraryDemo(
+        unified: widget.showCockpit,
+        campaigns: _campaigns,
         darkMode: _themeMode == ThemeMode.dark,
         onThemeChanged: (darkMode) => setState(
           () => _themeMode = darkMode ? ThemeMode.dark : ThemeMode.light,
@@ -39,11 +45,17 @@ class SourceLibraryDemo extends StatefulWidget {
   const SourceLibraryDemo({
     required this.darkMode,
     required this.onThemeChanged,
+    this.campaignsOnly = false,
+    this.campaigns,
+    this.unified = false,
     super.key,
   });
 
   final bool darkMode;
   final ValueChanged<bool> onThemeChanged;
+  final bool campaignsOnly;
+  final CampaignDemoRepository? campaigns;
+  final bool unified;
 
   @override
   State<SourceLibraryDemo> createState() => _SourceLibraryDemoState();
@@ -75,10 +87,31 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
   _DemoWorkspace _workspace = _DemoWorkspace.sources;
   NewsletterAudienceSummary? _audience;
   NewsletterTestReceipt? _testReceipt;
+  late final _campaigns = widget.campaigns ?? CampaignDemoRepository();
+  bool _fromCampaigns = false;
+  final _support = DemoSupportRepository();
+  final Map<String, SupportThread> _supportThreads = {};
+  final Map<String, NewsletterCampaign> _campaignItems = {};
+  final Map<String, String> _sections = {};
+  final _sectionKeys = {
+    for (final id in ['sources', 'support', 'diffusion']) id: GlobalKey(),
+  };
+  final _replyControllers = <String, TextEditingController>{};
+
+  @override
+  void dispose() {
+    for (final controller in _replyControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    if (widget.campaignsOnly) {
+      _workspace = _DemoWorkspace.campaigns;
+    }
     _items = _previewSources();
     _newsletterSources = _items
         .where((item) => item.location != 'archive')
@@ -95,6 +128,170 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
       eligibleCount: 1284,
       excludedCount: 37,
     );
+    if (widget.unified) _loadOtherFacets();
+  }
+
+  Future<void> _loadOtherFacets() async {
+    final support = await _support.threads('demo');
+    final campaigns = await _campaigns.list();
+    final otherItems = <SourceSidebarItem>[];
+    for (final summary in support.items) {
+      final thread = await _support.thread('demo', summary.id);
+      final id = 'support:${summary.id}';
+      _supportThreads[id] = thread;
+      _sections[id] = 'support';
+      otherItems.add(
+        SourceSidebarItem(
+          id: id,
+          title: summary.subject,
+          authorOrPublisher: summary.from,
+          summary: summary.snippet,
+          publishedAt: summary.updatedAt ?? DateTime(2026, 9, 8),
+          sourceType: 'Service client',
+          content: thread.messages
+              .map((m) => '${m.from}\n${m.text}')
+              .join('\n\n'),
+          tags: [summary.status.label],
+          seen: summary.status != SupportStatus.pending,
+          signalKind: SourceSidebarSignalKind.urgency,
+          signalStrength: _supportUrgency(summary.status),
+        ),
+      );
+    }
+    for (final campaign in campaigns.items) {
+      final id = 'campaign:${campaign.id}';
+      _campaignItems[id] = campaign;
+      _sections[id] = 'diffusion';
+      final draft = _campaigns.drafts[campaign.id];
+      otherItems.add(
+        SourceSidebarItem(
+          id: id,
+          title: campaign.title,
+          authorOrPublisher: 'ShipGlows',
+          summary: campaign.subject,
+          publishedAt: campaign.updatedAt,
+          sourceType: 'Diffusion',
+          content:
+              '${campaign.subject}\n\n${draft?.blocks.map((b) => b.text).join('\n\n') ?? 'Ce brouillon est prêt à être travaillé dans l’éditeur.'}',
+          tags: [campaign.status.label],
+          seen: true,
+          attention: _campaignAttention(campaign, draft != null),
+          signalKind: SourceSidebarSignalKind.urgency,
+          signalStrength: _campaignUrgency(campaign),
+        ),
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _items.removeWhere((item) => _sections.containsKey(item.id));
+      _items.addAll(otherItems);
+    });
+  }
+
+  SourceSidebarAttention _campaignAttention(
+    NewsletterCampaign campaign,
+    bool hasEditableDraft,
+  ) {
+    final scheduledAt = campaign.scheduledAt;
+    if (campaign.status == NewsletterCampaignStatus.failed ||
+        campaign.status == NewsletterCampaignStatus.partiallyDelivered ||
+        campaign.status == NewsletterCampaignStatus.unknown ||
+        (scheduledAt != null &&
+            scheduledAt.isBefore(
+              DateTime.now().add(const Duration(days: 2)),
+            ))) {
+      return SourceSidebarAttention.needsReview;
+    }
+    if (campaign.status == NewsletterCampaignStatus.draft &&
+        (hasEditableDraft || campaign.subject.trim().isNotEmpty)) {
+      return SourceSidebarAttention.readyToSend;
+    }
+    return SourceSidebarAttention.none;
+  }
+
+  double _supportUrgency(SupportStatus status) => switch (status) {
+    SupportStatus.pending => 0.78,
+    SupportStatus.waiting => 0.35,
+    SupportStatus.resolved => 0.08,
+  };
+
+  double _campaignUrgency(NewsletterCampaign campaign) {
+    if (campaign.status == NewsletterCampaignStatus.failed ||
+        campaign.status == NewsletterCampaignStatus.partiallyDelivered ||
+        campaign.status == NewsletterCampaignStatus.unknown) {
+      return 0.96;
+    }
+    if (campaign.status == NewsletterCampaignStatus.draft &&
+        campaign.subject.trim().isNotEmpty) {
+      return 0.72;
+    }
+    return 0.2;
+  }
+
+  void _openCampaign(NewsletterCampaign campaign) {
+    final sample = _previewNewsletter(_newsletterSources);
+    setState(() {
+      _newsletterDraft =
+          _campaigns.drafts[campaign.id] ??
+          NewsletterDraft(
+            id: campaign.id,
+            revision: campaign.revision,
+            title: campaign.title,
+            subject: campaign.subject,
+            preheader: '',
+            blocks: sample.blocks,
+            sources: sample.sources,
+          );
+      _fromCampaigns = true;
+      _workspace = _DemoWorkspace.newsletter;
+    });
+  }
+
+  Widget? get _facetActions {
+    final thread = _supportThreads[_selectedId];
+    final campaign = _campaignItems[_selectedId];
+    if (thread != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final status in SupportStatus.values)
+                ChoiceChip(
+                  label: Text(status.label),
+                  selected: thread.status == status,
+                  onSelected: (_) async {
+                    await _support.setStatus('demo', thread.id, status);
+                    await _loadOtherFacets();
+                  },
+                ),
+            ],
+          ),
+          TextField(
+            controller: _replyControllers.putIfAbsent(
+              thread.id,
+              TextEditingController.new,
+            ),
+            minLines: 3,
+            maxLines: 8,
+            decoration: const InputDecoration(labelText: 'Votre réponse'),
+          ),
+          const Text('Démonstration · aucun email réel ne sera envoyé.'),
+        ],
+      );
+    }
+    if (campaign != null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.icon(
+          onPressed: () => _openCampaign(campaign),
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Ouvrir l’éditeur'),
+        ),
+      );
+    }
+    return null;
   }
 
   Future<void> _refresh() async {
@@ -106,6 +303,7 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
       _selectedId = null;
       _loading = false;
     });
+    if (widget.unified) await _loadOtherFacets();
     _notify('Demo library refreshed.');
   }
 
@@ -227,6 +425,7 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
 
   Future<NewsletterDraft> _saveNewsletter(NewsletterDraft draft) async {
     await Future<void>.delayed(PreviewTheme.simulatedActionDelay);
+    _campaigns.save(draft);
     return draft.copyWith(
       revision: draft.revision + 1,
       saveState: NewsletterSaveState.saved,
@@ -351,21 +550,69 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
     return Scaffold(
       body: SafeArea(
         child: switch (_workspace) {
+          _DemoWorkspace.campaigns => CampaignWorkspace(
+            repository: _campaigns,
+            style: PreviewTheme.newsletterStyle(widget.darkMode),
+            businessLabel: 'ShipGlows · démonstration',
+            disabledReason:
+                'Données fictives · aucun email réel ne sera envoyé.',
+            onOpenCampaign: (campaign) async {
+              final sample = _previewNewsletter(_newsletterSources);
+              setState(() {
+                _newsletterDraft =
+                    _campaigns.drafts[campaign.id] ??
+                    NewsletterDraft(
+                      id: campaign.id,
+                      revision: campaign.revision,
+                      title: campaign.title,
+                      subject: campaign.subject,
+                      preheader: 'Le carnet de bord des projets ShipGlows.',
+                      blocks: sample.blocks,
+                      sources: sample.sources,
+                    );
+                _fromCampaigns = true;
+                _workspace = _DemoWorkspace.newsletter;
+              });
+            },
+          ),
           _DemoWorkspace.sources => SourceSidebar(
-            title: 'Sources',
+            title: widget.unified ? 'ShipGlows Email Engine' : 'Sources',
+            itemSectionIds: widget.unified
+                ? {
+                    for (final item in _items)
+                      item.id: _sections[item.id] ?? 'sources',
+                  }
+                : const {},
+            sectionLabels: widget.unified
+                ? const {
+                    'sources': 'Sources',
+                    'support': 'Service client',
+                    'diffusion': 'Idées et brouillons de diffusion',
+                  }
+                : const {},
+            sectionKeys: widget.unified ? _sectionKeys : const {},
+            readerFooter: widget.unified ? _facetActions : null,
             items: _items,
             selectedId: _selectedId,
             isLoading: _loading,
             style: PreviewTheme.sidebarStyle(widget.darkMode),
             categories: PreviewTheme.categories(widget.darkMode),
             topBarActions: [
-              IconButton(
-                tooltip: 'Open Newsletter Studio',
-                onPressed: () {
-                  setState(() => _workspace = _DemoWorkspace.newsletter);
-                },
-                icon: const Icon(Icons.edit_note_outlined),
-              ),
+              if (!widget.unified)
+                IconButton(
+                  tooltip: 'Campagnes',
+                  onPressed: () =>
+                      setState(() => _workspace = _DemoWorkspace.campaigns),
+                  icon: const Icon(Icons.campaign_outlined),
+                ),
+              if (!widget.unified)
+                IconButton(
+                  tooltip: 'Open Newsletter Studio',
+                  onPressed: () {
+                    setState(() => _workspace = _DemoWorkspace.newsletter);
+                  },
+                  icon: const Icon(Icons.edit_note_outlined),
+                ),
               IconButton(
                 tooltip: widget.darkMode ? 'Use light theme' : 'Use dark theme',
                 onPressed: () => widget.onThemeChanged(!widget.darkMode),
@@ -382,21 +629,28 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
             ],
             onSelected: (id) => setState(() => _selectedId = id),
             onRefresh: _refresh,
-            onOpenLibrary: _openLibrary,
-            onIngest: _ingest,
-            onMarkSeen: _markSeen,
-            onArchive: _archive,
-            onDelete: _delete,
-            onOpenExternal: _openExternal,
+            refreshTooltip: widget.unified
+                ? 'Actualiser la boîte'
+                : 'Refresh sources',
+            onOpenLibrary: widget.unified ? null : _openLibrary,
+            onIngest: _sections.containsKey(_selectedId) ? null : _ingest,
+            onMarkSeen: _sections.containsKey(_selectedId) ? null : _markSeen,
+            onArchive: _sections.containsKey(_selectedId) ? null : _archive,
+            onDelete: _sections.containsKey(_selectedId) ? null : _delete,
+            onOpenExternal: _sections.containsKey(_selectedId)
+                ? null
+                : _openExternal,
             moveDestinations: _moveDestinations,
             laterDestinationId: 'later',
-            onMove: _move,
+            onMove: _sections.containsKey(_selectedId) ? null : _move,
             accounts: _accounts,
             currentAccountId: _accountId,
             onAccountSelected: _selectAccount,
-            onSummarize: _summarize,
+            onSummarize: _sections.containsKey(_selectedId) ? null : _summarize,
             projectDestinations: _projects,
-            onDistribute: _distribute,
+            onDistribute: _sections.containsKey(_selectedId)
+                ? null
+                : _distribute,
             onActionError: (error) => _notify('Action failed: $error'),
           ),
           _DemoWorkspace.newsletter => NewsletterStudio(
@@ -444,7 +698,12 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
               _notify('Opened ${source.title} in the synthetic source tray.');
             },
             onBack: () {
-              setState(() => _workspace = _DemoWorkspace.sources);
+              setState(
+                () => _workspace = _fromCampaigns && !widget.unified
+                    ? _DemoWorkspace.campaigns
+                    : _DemoWorkspace.sources,
+              );
+              if (widget.unified) _loadOtherFacets();
             },
             topBarActions: [
               IconButton(
@@ -464,7 +723,7 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
   }
 }
 
-enum _DemoWorkspace { sources, newsletter }
+enum _DemoWorkspace { sources, newsletter, campaigns }
 
 NewsletterSourceReference _newsletterSourceFromItem(SourceSidebarItem item) {
   return NewsletterSourceReference(
@@ -528,6 +787,7 @@ List<SourceSidebarItem> _previewSources() => [
     summary: 'Keep product decisions separate from provider adapters.',
     day: 25,
     tags: const ['shipglows-ready', 'flutter'],
+    relevance: 0.92,
     content:
         '''A resilient Flutter application keeps presentation, domain decisions, and external providers behind clear boundaries.
 
@@ -540,6 +800,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Authentication, provenance, and prompt-injection boundaries.',
     day: 24,
     tags: const ['shipglows-ready', 'security'],
+    relevance: 0.84,
   ),
   _source(
     id: 'content-systems',
@@ -548,6 +809,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'One source library can feed distinct project workflows.',
     day: 23,
     tags: const ['contentglows-ready', 'workflow'],
+    relevance: 0.66,
     seen: true,
   ),
   _source(
@@ -557,6 +819,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'What to extract before an upgrade becomes urgent.',
     day: 22,
     tags: const ['shipglows-ready', 'maintenance'],
+    relevance: 0.78,
   ),
   _source(
     id: 'reader-workflow',
@@ -565,6 +828,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Capture once, review deliberately, distribute when useful.',
     day: 21,
     tags: const ['research', 'reader'],
+    relevance: 0.42,
     seen: true,
   ),
   _source(
@@ -574,6 +838,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'A provenance-first framework for health content.',
     day: 20,
     tags: const ['contentglows-ready', 'health'],
+    relevance: 0.7,
     seen: true,
   ),
   _source(
@@ -583,6 +848,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Practical implementation notes from production teams.',
     day: 19,
     tags: const ['shipglows-ready', 'security'],
+    relevance: 0.82,
   ),
   _source(
     id: 'editorial-angles',
@@ -591,6 +857,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Move from collected sources to defensible points of view.',
     day: 18,
     tags: const ['contentglows-ready', 'research'],
+    relevance: 0.64,
     processed: true,
   ),
   _source(
@@ -600,6 +867,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Keep scrolling smooth without flattening the experience.',
     day: 17,
     tags: const ['shipglows-ready', 'flutter'],
+    relevance: 0.46,
     seen: true,
   ),
   _source(
@@ -609,6 +877,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Distribution and workflow advantages worth studying.',
     day: 16,
     tags: const ['contentglows-ready', 'business'],
+    relevance: 0.73,
   ),
   _source(
     id: 'supply-chain',
@@ -617,6 +886,7 @@ This synthetic article demonstrates the long-form reading state. Select text, se
     summary: 'Attestations, lockfiles, and the controls between them.',
     day: 15,
     tags: const ['shipglows-ready', 'security'],
+    relevance: 0.52,
     processed: true,
     seen: true,
   ),
@@ -642,6 +912,7 @@ SourceSidebarItem _source({
   String? content,
   bool seen = false,
   bool processed = false,
+  double relevance = 0,
   String location = 'new',
 }) {
   return SourceSidebarItem(
@@ -658,6 +929,7 @@ SourceSidebarItem _source({
 Production applications provide sanitized content and decide what “Send to project” means. The shared package remains independent from Readwise and from either product architecture.''',
     tags: tags,
     seen: seen,
+    signalStrength: relevance,
     location: location,
     processingState: processed
         ? SourceProcessingState.processed

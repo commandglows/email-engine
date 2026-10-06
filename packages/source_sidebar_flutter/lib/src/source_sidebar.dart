@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shipglows_flutter_zoom/shipglows_flutter_zoom.dart';
 
 import 'source_category.dart';
+import 'grouped_section_header.dart';
 import 'source_move_destination.dart';
 import 'source_sidebar_item.dart';
 import 'source_sidebar_shortcuts.dart';
@@ -23,6 +26,7 @@ class SourceSidebar extends StatefulWidget {
     this.emptyMessage = 'No sources to review.',
     this.style = const SourceSidebarStyle(),
     this.onRefresh,
+    this.refreshTooltip = 'Refresh sources',
     this.onLoadMore,
     this.onOpenLibrary,
     this.onIngest,
@@ -43,6 +47,12 @@ class SourceSidebar extends StatefulWidget {
     this.projectDestinations = const <SourceProjectDestination>[],
     this.onDistribute,
     this.onActionError,
+    this.navigationHeader,
+    this.itemSectionIds = const <String, String>{},
+    this.sectionLabels = const <String, String>{},
+    this.sectionEmptyMessages = const <String, String>{},
+    this.sectionKeys = const <String, GlobalKey>{},
+    this.readerFooter,
   });
 
   final String title;
@@ -56,6 +66,7 @@ class SourceSidebar extends StatefulWidget {
   final String emptyMessage;
   final SourceSidebarStyle style;
   final Future<void> Function()? onRefresh;
+  final String refreshTooltip;
   final Future<void> Function()? onLoadMore;
   final Future<void> Function()? onOpenLibrary;
   final SourceItemCallback? onIngest;
@@ -77,6 +88,19 @@ class SourceSidebar extends StatefulWidget {
   final SourceDistributionCallback? onDistribute;
   final SourceActionErrorCallback? onActionError;
 
+  /// Host navigation inserted above the existing filters on every layout.
+  final Widget? navigationHeader;
+
+  /// Optional ordered groups sharing the same source rows and reader.
+  /// Items without a known mapping belong to the first declared section.
+  final Map<String, String> itemSectionIds;
+  final Map<String, String> sectionLabels;
+  final Map<String, String> sectionEmptyMessages;
+  final Map<String, GlobalKey> sectionKeys;
+
+  /// Contextual actions/composer in the existing reader's scroll surface.
+  final Widget? readerFooter;
+
   @override
   State<SourceSidebar> createState() => _SourceSidebarState();
 }
@@ -93,6 +117,7 @@ class _SourceSidebarState extends State<SourceSidebar> {
   String _filterId = _FilterId.inbox;
   String? _pendingAction;
   String? _activeId;
+  final _collapsedSections = <String>{};
 
   @override
   void dispose() {
@@ -153,7 +178,7 @@ class _SourceSidebarState extends State<SourceSidebar> {
 
   List<SourceSidebarItem> get _visibleItems {
     final query = _query.trim().toLowerCase();
-    return widget.items
+    final visible = widget.items
         .where((item) {
           final matchesQuery =
               query.isEmpty ||
@@ -187,6 +212,18 @@ class _SourceSidebarState extends State<SourceSidebar> {
           };
         })
         .toList(growable: false);
+    if (widget.sectionLabels.isEmpty) return visible;
+    return [
+      for (final section in widget.sectionLabels.keys)
+        ...visible.where((item) => _sectionFor(item.id) == section),
+    ];
+  }
+
+  String _sectionFor(String itemId) {
+    final section = widget.itemSectionIds[itemId];
+    return widget.sectionLabels.containsKey(section)
+        ? section!
+        : widget.sectionLabels.keys.first;
   }
 
   SourceSidebarItem? get _selectedItem {
@@ -211,6 +248,45 @@ class _SourceSidebarState extends State<SourceSidebar> {
         return countOrder == 0 ? a.compareTo(b) : countOrder;
       });
     return tags.take(6).toList(growable: false);
+  }
+
+  double _navigationWidth(BuildContext context) {
+    final entries = <(String, int)>[
+      ('Inbox', _countFor(_FilterId.inbox)),
+      ('Unread', _countFor(_FilterId.unread)),
+      ('Processed', _countFor(_FilterId.processed)),
+      if (widget.laterDestinationId != null)
+        ('Later', _countFor(_FilterId.later)),
+      ('Archived', _countFor(_FilterId.archive)),
+      for (final tag in _tags)
+        (_categoryFor(tag).name, _countFor('${_FilterId.tagPrefix}$tag')),
+    ];
+    final textStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+      fontSize: (Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14) * 1.5,
+    );
+    final scaler = MediaQuery.textScalerOf(context);
+    double measure(String text) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: textStyle),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+      )..layout();
+      return painter.width;
+    }
+
+    final widest = entries.fold<double>(0, (current, entry) {
+      final countWidth = entry.$2 == 0
+          ? 0
+          : widget.style.gapLarge + measure('${entry.$2}');
+      return math.max(current, measure(entry.$1) + countWidth);
+    });
+    final chrome = 36 + widget.style.actionIconSize + widget.style.gapLarge;
+    return (widest + chrome)
+        .clamp(
+          216,
+          MediaQuery.sizeOf(context).width - widget.style.gapLarge * 2,
+        )
+        .toDouble();
   }
 
   int _countFor(String filterId) {
@@ -367,8 +443,16 @@ class _SourceSidebarState extends State<SourceSidebar> {
       if (!_listScrollController.hasClients) return;
       final index = _visibleItems.indexWhere((item) => item.id == _activeId);
       if (index < 0) return;
-      final estimatedOffset =
+      var estimatedOffset =
           index * (widget.style.denseRowHeight + widget.style.dividerThickness);
+      if (widget.sectionLabels.isNotEmpty) {
+        final sectionIndex = widget.sectionLabels.keys.toList().indexOf(
+          _sectionFor(_activeId!),
+        );
+        estimatedOffset +=
+            (sectionIndex + 1) * widget.style.toolbarHeight +
+            sectionIndex * widget.style.gap4XLarge;
+      }
       _listScrollController.animateTo(
         estimatedOffset
             .clamp(0, _listScrollController.position.maxScrollExtent)
@@ -817,25 +901,34 @@ class _SourceSidebarState extends State<SourceSidebar> {
   }
 
   Future<void> _showNavigationSheet() async {
-    await showModalBottomSheet<void>(
+    final panelWidth = _navigationWidth(context);
+    await showGeneralDialog<void>(
       context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: _NavigationPane(
-          title: widget.title,
-          style: widget.style,
-          colors: _colors,
-          selectedFilterId: _filterId,
-          showLater: widget.laterDestinationId != null,
-          tags: _tags,
-          categoryFor: _categoryFor,
-          countFor: _countFor,
-          onOpenLibrary: widget.onOpenLibrary,
-          onFilterSelected: (id) {
-            Navigator.pop(sheetContext);
-            _selectFilter(id);
-          },
+      barrierDismissible: true,
+      barrierLabel: 'Fermer la navigation',
+      barrierColor: Colors.black54,
+      pageBuilder: (dialogContext, _, _) => Align(
+        alignment: Alignment.centerLeft,
+        child: SafeArea(
+          child: SizedBox(
+            width: panelWidth,
+            child: _NavigationPane(
+              navigationHeader: widget.navigationHeader,
+              title: widget.title,
+              style: widget.style,
+              colors: _colors,
+              selectedFilterId: _filterId,
+              showLater: widget.laterDestinationId != null,
+              tags: _tags,
+              categoryFor: _categoryFor,
+              countFor: _countFor,
+              onOpenLibrary: widget.onOpenLibrary,
+              onFilterSelected: (id) {
+                Navigator.pop(dialogContext);
+                _selectFilter(id);
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -978,11 +1071,13 @@ class _SourceSidebarState extends State<SourceSidebar> {
                     constraints.maxWidth < widget.style.compactBreakpoint;
                 final showNavigation =
                     constraints.maxWidth >= widget.style.navigationBreakpoint;
+                final navigationWidth = _navigationWidth(context);
                 return Material(
                   color: _colors.canvas,
                   child: Column(
                     children: [
                       _TopBar(
+                        grouped: widget.sectionLabels.isNotEmpty,
                         title: widget.title,
                         compact: !showNavigation,
                         style: widget.style,
@@ -993,6 +1088,7 @@ class _SourceSidebarState extends State<SourceSidebar> {
                             setState(() => _query = query),
                         onMenu: _showNavigationSheet,
                         onRefresh: widget.onRefresh,
+                        refreshTooltip: widget.refreshTooltip,
                         isLoading: widget.isLoading,
                         actions: widget.topBarActions,
                       ),
@@ -1001,8 +1097,9 @@ class _SourceSidebarState extends State<SourceSidebar> {
                           children: [
                             if (showNavigation)
                               SizedBox(
-                                width: widget.style.navigationWidth,
+                                width: navigationWidth,
                                 child: _NavigationPane(
+                                  navigationHeader: widget.navigationHeader,
                                   title: widget.title,
                                   style: widget.style,
                                   colors: _colors,
@@ -1018,6 +1115,12 @@ class _SourceSidebarState extends State<SourceSidebar> {
                             Expanded(
                               child: _selectedItem == null
                                   ? _SourceInbox(
+                                      itemSectionIds: widget.itemSectionIds,
+                                      sectionLabels: widget.sectionLabels,
+                                      sectionEmptyMessages:
+                                          widget.sectionEmptyMessages,
+                                      sectionKeys: widget.sectionKeys,
+                                      collapsedSections: _collapsedSections,
                                       items: _visibleItems,
                                       selectedId: _activeId,
                                       filterLabel: _filterLabel,
@@ -1036,10 +1139,18 @@ class _SourceSidebarState extends State<SourceSidebar> {
                                       scrollController: _listScrollController,
                                       onActiveChanged: (id) =>
                                           setState(() => _activeId = id),
+                                      onSectionToggled: (section) => setState(
+                                        () =>
+                                            _collapsedSections.contains(section)
+                                            ? _collapsedSections.remove(section)
+                                            : _collapsedSections.add(section),
+                                      ),
                                       onRefresh: widget.onRefresh,
+                                      refreshTooltip: widget.refreshTooltip,
                                       onLoadMore: widget.onLoadMore,
                                     )
                                   : _ReaderPane(
+                                      readerFooter: widget.readerFooter,
                                       item: _selectedItem!,
                                       items: _visibleItems,
                                       style: widget.style,
@@ -1109,6 +1220,13 @@ class _SourceSidebarState extends State<SourceSidebar> {
                           ],
                         ),
                       ),
+                      if (compact)
+                        _MobileNavigationBar(
+                          selectedFilterId: _filterId,
+                          showLater: widget.laterDestinationId != null,
+                          onFilterSelected: _selectFilter,
+                          onMore: _showNavigationSheet,
+                        ),
                     ],
                   ),
                 );
@@ -1123,6 +1241,7 @@ class _SourceSidebarState extends State<SourceSidebar> {
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
+    this.grouped = false,
     required this.title,
     required this.compact,
     required this.style,
@@ -1132,11 +1251,13 @@ class _TopBar extends StatelessWidget {
     required this.onSearchChanged,
     required this.onMenu,
     required this.onRefresh,
+    required this.refreshTooltip,
     required this.isLoading,
     required this.actions,
   });
 
   final String title;
+  final bool grouped;
   final bool compact;
   final SourceSidebarStyle style;
   final SourceSidebarColors colors;
@@ -1145,6 +1266,7 @@ class _TopBar extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onMenu;
   final Future<void> Function()? onRefresh;
+  final String refreshTooltip;
   final bool isLoading;
   final List<Widget> actions;
 
@@ -1159,23 +1281,31 @@ class _TopBar extends StatelessWidget {
             onPressed: onMenu,
             icon: const Icon(Icons.menu),
           ),
-        Icon(Icons.auto_stories_outlined, color: colors.focus),
+        Icon(
+          grouped ? Icons.mail_outline : Icons.auto_stories_outlined,
+          color: colors.focus,
+        ),
         SizedBox(width: style.identityGap),
         Flexible(
           child: Text(
             title,
-            maxLines: 1,
+            maxLines: grouped ? 2 : 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: colors.mutedForeground,
-              fontWeight: FontWeight.w400,
-            ),
+            style:
+                (grouped
+                        ? Theme.of(context).textTheme.titleMedium
+                        : Theme.of(context).textTheme.titleLarge)
+                    ?.copyWith(
+                      color: colors.mutedForeground,
+                      fontWeight: FontWeight.w400,
+                    ),
           ),
         ),
       ],
     );
 
     final search = _SourceSearch(
+      hint: grouped ? 'Search emails' : 'Search sources',
       controller: searchController,
       focusNode: searchFocus,
       style: style,
@@ -1184,7 +1314,7 @@ class _TopBar extends StatelessWidget {
     );
 
     final refresh = IconButton(
-      tooltip: 'Refresh sources',
+      tooltip: refreshTooltip,
       onPressed: isLoading ? null : onRefresh,
       icon: isLoading
           ? SizedBox.square(
@@ -1247,6 +1377,7 @@ class _TopBar extends StatelessWidget {
 
 class _SourceSearch extends StatelessWidget {
   const _SourceSearch({
+    this.hint = 'Search sources',
     required this.controller,
     required this.focusNode,
     required this.style,
@@ -1255,6 +1386,7 @@ class _SourceSearch extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final String hint;
   final FocusNode focusNode;
   final SourceSidebarStyle style;
   final SourceSidebarColors colors;
@@ -1267,10 +1399,10 @@ class _SourceSearch extends StatelessWidget {
       focusNode: focusNode,
       onChanged: onChanged,
       decoration: InputDecoration(
-        hintText: 'Search sources',
+        hintText: hint,
         prefixIcon: const Icon(Icons.search),
         suffixIcon: controller.text.isEmpty
-            ? const Icon(Icons.tune, semanticLabel: 'Search options')
+            ? null
             : IconButton(
                 tooltip: 'Clear search',
                 onPressed: () {
@@ -1298,8 +1430,73 @@ class _SourceSearch extends StatelessWidget {
   }
 }
 
+class _MobileNavigationBar extends StatelessWidget {
+  const _MobileNavigationBar({
+    required this.selectedFilterId,
+    required this.showLater,
+    required this.onFilterSelected,
+    required this.onMore,
+  });
+
+  final String selectedFilterId;
+  final bool showLater;
+  final ValueChanged<String> onFilterSelected;
+  final VoidCallback onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.inbox_outlined),
+        selectedIcon: Icon(Icons.inbox),
+        label: 'Inbox',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.mark_email_unread_outlined),
+        selectedIcon: Icon(Icons.mark_email_unread),
+        label: 'Non lus',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.task_alt_outlined),
+        selectedIcon: Icon(Icons.task_alt),
+        label: 'Traités',
+      ),
+      if (showLater)
+        const NavigationDestination(
+          icon: Icon(Icons.schedule_outlined),
+          selectedIcon: Icon(Icons.schedule),
+          label: 'Plus tard',
+        ),
+      const NavigationDestination(
+        icon: Icon(Icons.menu_outlined),
+        selectedIcon: Icon(Icons.menu),
+        label: 'Menu',
+      ),
+    ];
+    final filters = [
+      _FilterId.inbox,
+      _FilterId.unread,
+      _FilterId.processed,
+      if (showLater) _FilterId.later,
+    ];
+    final selectedIndex = filters.indexOf(selectedFilterId);
+    return NavigationBar(
+      selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
+      onDestinationSelected: (index) {
+        if (index == destinations.length - 1) {
+          onMore();
+          return;
+        }
+        onFilterSelected(filters[index]);
+      },
+      destinations: destinations,
+    );
+  }
+}
+
 class _NavigationPane extends StatelessWidget {
   const _NavigationPane({
+    this.navigationHeader,
     required this.title,
     required this.style,
     required this.colors,
@@ -1313,6 +1510,7 @@ class _NavigationPane extends StatelessWidget {
   });
 
   final String title;
+  final Widget? navigationHeader;
   final SourceSidebarStyle style;
   final SourceSidebarColors colors;
   final String selectedFilterId;
@@ -1330,6 +1528,10 @@ class _NavigationPane extends StatelessWidget {
       child: ListView(
         padding: style.navigationPadding,
         children: [
+          if (navigationHeader != null) ...[
+            navigationHeader!,
+            SizedBox(height: style.gapLarge),
+          ],
           if (onOpenLibrary != null) ...[
             Align(
               alignment: Alignment.centerLeft,
@@ -1354,6 +1556,12 @@ class _NavigationPane extends StatelessWidget {
             ),
             SizedBox(height: style.gapLarge),
           ],
+          _NavigationSectionHeading(
+            label: 'Statuts',
+            icon: Icons.filter_list_outlined,
+            style: style,
+            colors: colors,
+          ),
           _NavigationItem(
             label: 'Inbox',
             icon: Icons.inbox_outlined,
@@ -1401,31 +1609,107 @@ class _NavigationPane extends StatelessWidget {
             onTap: () => onFilterSelected(_FilterId.archive),
           ),
           if (tags.isNotEmpty) ...[
-            SizedBox(height: style.gapExtraLarge),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-              child: Text(
-                'Categories',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(color: colors.foreground),
+            SizedBox(height: style.gapLarge),
+            ..._categorySection(
+              context,
+              label: 'Projets',
+              icon: Icons.account_tree_outlined,
+              categoryIds: tags.where(
+                (tag) => categoryFor(tag).kind == SourceCategoryKind.project,
               ),
             ),
-            ...tags.map((tag) {
-              final id = '${_FilterId.tagPrefix}$tag';
-              final category = categoryFor(tag);
-              return _NavigationItem(
-                label: category.name,
-                icon: category.icon,
-                iconColor: category.color,
-                count: countFor(id),
-                selected: selectedFilterId == id,
-                style: style,
-                colors: colors,
-                onTap: () => onFilterSelected(id),
-              );
-            }),
+            ..._categorySection(
+              context,
+              label: 'Tags',
+              icon: Icons.sell_outlined,
+              categoryIds: tags.where(
+                (tag) => categoryFor(tag).kind == SourceCategoryKind.tag,
+              ),
+            ),
           ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _categorySection(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required Iterable<String> categoryIds,
+  }) {
+    final ids = categoryIds.toList(growable: false);
+    if (ids.isEmpty) return const [];
+    return [
+      _NavigationSectionHeading(
+        label: label,
+        icon: icon,
+        style: style,
+        colors: colors,
+        topInset: style.gapLarge,
+      ),
+      ...ids.map((tag) {
+        final id = '${_FilterId.tagPrefix}$tag';
+        final category = categoryFor(tag);
+        return _NavigationItem(
+          label: category.name,
+          icon: category.icon,
+          iconColor: category.color,
+          count: countFor(id),
+          selected: selectedFilterId == id,
+          style: style,
+          colors: colors,
+          onTap: () => onFilterSelected(id),
+        );
+      }),
+    ];
+  }
+}
+
+class _NavigationSectionHeading extends StatelessWidget {
+  const _NavigationSectionHeading({
+    required this.label,
+    required this.icon,
+    required this.style,
+    required this.colors,
+    this.topInset = 0,
+  });
+
+  final String label;
+  final IconData icon;
+  final SourceSidebarStyle style;
+  final SourceSidebarColors colors;
+  final double topInset;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = Theme.of(context).textTheme.bodyMedium;
+    return Container(
+      margin: EdgeInsets.fromLTRB(18, topInset, 18, style.gapSmall),
+      padding: EdgeInsets.symmetric(
+        horizontal: style.gapMedium,
+        vertical: style.gapSmall,
+      ),
+      decoration: BoxDecoration(
+        color: colors.searchSurface,
+        borderRadius: BorderRadius.circular(style.navigationItemRadius),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: style.actionIconSize, color: colors.mutedForeground),
+          SizedBox(width: style.identityGap),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: baseStyle?.copyWith(
+                color: colors.foreground,
+                fontSize: (baseStyle.fontSize ?? 14) * 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1472,23 +1756,39 @@ class _NavigationItem extends StatelessWidget {
           ),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             child: Row(
               children: [
                 Icon(icon, size: style.actionIconSize, color: iconColor),
                 SizedBox(width: style.gapLarge),
-                Expanded(
+                Flexible(
+                  fit: FlexFit.loose,
                   child: Text(
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontSize:
+                          (Theme.of(context).textTheme.bodyMedium?.fontSize ??
+                              14) *
+                          1.5,
                       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
                 ),
                 if (count > 0)
-                  Text('$count', style: Theme.of(context).textTheme.labelSmall),
+                  Padding(
+                    padding: EdgeInsets.only(left: style.gapLarge),
+                    child: Text(
+                      '$count',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontSize:
+                            (Theme.of(context).textTheme.bodyMedium?.fontSize ??
+                                14) *
+                            1.5,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1500,6 +1800,11 @@ class _NavigationItem extends StatelessWidget {
 
 class _SourceInbox extends StatelessWidget {
   const _SourceInbox({
+    this.itemSectionIds = const {},
+    this.sectionLabels = const {},
+    this.sectionEmptyMessages = const {},
+    this.sectionKeys = const {},
+    this.collapsedSections = const {},
     required this.items,
     required this.selectedId,
     required this.filterLabel,
@@ -1517,11 +1822,18 @@ class _SourceInbox extends StatelessWidget {
     required this.rowFocusNodes,
     required this.scrollController,
     required this.onActiveChanged,
+    required this.onSectionToggled,
     required this.onRefresh,
+    required this.refreshTooltip,
     required this.onLoadMore,
   });
 
   final List<SourceSidebarItem> items;
+  final Map<String, String> itemSectionIds;
+  final Map<String, String> sectionLabels;
+  final Map<String, String> sectionEmptyMessages;
+  final Map<String, GlobalKey> sectionKeys;
+  final Set<String> collapsedSections;
   final String? selectedId;
   final String filterLabel;
   final bool isLoading;
@@ -1538,7 +1850,9 @@ class _SourceInbox extends StatelessWidget {
   final Map<String, FocusNode> rowFocusNodes;
   final ScrollController scrollController;
   final ValueChanged<String> onActiveChanged;
+  final ValueChanged<String> onSectionToggled;
   final Future<void> Function()? onRefresh;
+  final String refreshTooltip;
   final Future<void> Function()? onLoadMore;
 
   @override
@@ -1547,50 +1861,157 @@ class _SourceInbox extends StatelessWidget {
       color: colors.surface,
       child: Column(
         children: [
-          Container(
-            height: style.toolbarHeight,
-            padding: style.toolbarPadding,
-            decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: colors.divider)),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  filterLabel,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(color: colors.foreground),
-                ),
-                SizedBox(width: style.gapSmall),
-                Text(
-                  '${items.length}',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: colors.mutedForeground,
-                  ),
-                ),
-                const Spacer(),
-                if (!compact)
+          if (sectionLabels.isEmpty)
+            Container(
+              height: style.toolbarHeight,
+              padding: style.toolbarPadding,
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: colors.divider)),
+              ),
+              child: Row(
+                children: [
                   Text(
-                    'J/K to navigate',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    filterLabel,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleSmall?.copyWith(color: colors.foreground),
+                  ),
+                  SizedBox(width: style.gapSmall),
+                  Text(
+                    '${items.length}',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       color: colors.mutedForeground,
                     ),
                   ),
-                IconButton(
-                  tooltip: 'Refresh sources',
-                  onPressed: isLoading ? null : onRefresh,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
+                  const Spacer(),
+                  if (!compact)
+                    Text(
+                      'J/K to navigate',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colors.mutedForeground,
+                      ),
+                    ),
+                  IconButton(
+                    tooltip: refreshTooltip,
+                    onPressed: isLoading ? null : onRefresh,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
             ),
-          ),
           Expanded(child: _body(context)),
         ],
       ),
     );
   }
 
+  Widget _groupedBody(BuildContext context) {
+    final groups = {
+      for (final id in sectionLabels.keys) id: <SourceSidebarItem>[],
+    };
+    for (final item in items) {
+      final section = itemSectionIds[item.id];
+      (groups[section] ?? groups.values.first).add(item);
+    }
+    return CustomScrollView(
+      controller: scrollController,
+      slivers: [
+        if (isLoading)
+          const SliverToBoxAdapter(child: LinearProgressIndicator()),
+        if (errorMessage != null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: style.contentPadding,
+              child: _MessageState(
+                icon: Icons.cloud_off_outlined,
+                message: errorMessage!,
+                style: style,
+                actionLabel: onRefresh == null ? null : 'Try again',
+                onAction: onRefresh,
+              ),
+            ),
+          ),
+        for (final section in sectionLabels.entries) ...[
+          SliverToBoxAdapter(
+            child: GroupedSectionHeader(
+              key: sectionKeys[section.key],
+              sectionId: section.key,
+              label: section.value,
+              isFirst: section.key == sectionLabels.keys.first,
+              collapsed: collapsedSections.contains(section.key),
+              unreadCount: groups[section.key]!
+                  .where((item) => !item.seen)
+                  .length,
+              totalCount: groups[section.key]!.length,
+              style: style,
+              colors: colors,
+              onTap: () => onSectionToggled(section.key),
+            ),
+          ),
+          if (!collapsedSections.contains(section.key) &&
+              groups[section.key]!.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: style.contentPadding,
+                child: Text(
+                  sectionEmptyMessages[section.key] ??
+                      'Aucun email à afficher.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: colors.mutedForeground,
+                  ),
+                ),
+              ),
+            )
+          else if (!collapsedSections.contains(section.key))
+            SliverList(
+              delegate: SliverChildBuilderDelegate((context, index) {
+                if (index.isOdd) {
+                  return Divider(
+                    height: style.dividerThickness,
+                    color: colors.divider,
+                  );
+                }
+                final item = groups[section.key]![index ~/ 2];
+                return _DenseSourceRow(
+                  key: rowKeys.putIfAbsent(item.id, () => GlobalKey()),
+                  item: item,
+                  sectionId: section.key,
+                  compact: compact,
+                  selected: item.id == selectedId,
+                  style: style,
+                  colors: colors,
+                  categoryFor: categoryFor,
+                  focusNode: rowFocusNodes.putIfAbsent(
+                    item.id,
+                    () => FocusNode(debugLabel: 'Source row ${item.id}'),
+                  ),
+                  onTap: () => onSelected(item.id),
+                  onFocus: () => onActiveChanged(item.id),
+                );
+              }, childCount: groups[section.key]!.length * 2 - 1),
+            ),
+        ],
+        if (hasMore)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: style.contentPadding,
+              child: OutlinedButton(
+                onPressed: isLoadingMore ? null : onLoadMore,
+                child: isLoadingMore
+                    ? SizedBox.square(
+                        dimension: style.actionIconSize,
+                        child: const CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Load more'),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _body(BuildContext context) {
+    if (sectionLabels.isNotEmpty) return _groupedBody(context);
     if (isLoading && items.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -1655,6 +2076,7 @@ class _DenseSourceRow extends StatelessWidget {
   const _DenseSourceRow({
     super.key,
     required this.item,
+    this.sectionId,
     required this.compact,
     required this.selected,
     required this.style,
@@ -1666,6 +2088,7 @@ class _DenseSourceRow extends StatelessWidget {
   });
 
   final SourceSidebarItem item;
+  final String? sectionId;
   final bool compact;
   final bool selected;
   final SourceSidebarStyle style;
@@ -1677,17 +2100,59 @@ class _DenseSourceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final background = selected
-        ? colors.selectedSurface
-        : item.seen
-        ? colors.surface
-        : colors.unreadSurface;
+    final scheme = Theme.of(context).colorScheme;
+    final sectionBackground = sectionId == null
+        ? null
+        : groupedSectionAppearance(scheme, sectionId!).background;
+    final attentionBackground = switch (item.attention) {
+      SourceSidebarAttention.readyToSend => sectionBackground,
+      SourceSidebarAttention.needsReview => scheme.errorContainer,
+      SourceSidebarAttention.none => null,
+    };
+    final signalBackground =
+        item.signalKind == SourceSidebarSignalKind.urgency &&
+            item.signalStrength >= 0.85
+        ? scheme.errorContainer
+        : sectionBackground;
+    final background = attentionBackground != null
+        ? Color.alphaBlend(
+            attentionBackground.withValues(
+              alpha: item.attention == SourceSidebarAttention.needsReview
+                  ? 0.68
+                  : 0.58,
+            ),
+            colors.surface,
+          )
+        : item.signalStrength > 0 && signalBackground != null
+        ? Color.alphaBlend(
+            signalBackground.withValues(
+              alpha: 0.12 + (item.signalStrength * 0.62),
+            ),
+            colors.surface,
+          )
+        : sectionBackground == null
+        ? (selected
+              ? colors.selectedSurface
+              : item.seen
+              ? colors.surface
+              : colors.unreadSurface)
+        : Color.alphaBlend(
+            sectionBackground.withValues(
+              alpha: selected
+                  ? 0.62
+                  : item.seen
+                  ? 0.10
+                  : 0.48,
+            ),
+            colors.surface,
+          );
     final titleWeight = item.seen ? FontWeight.w500 : FontWeight.w700;
 
     return Semantics(
       selected: selected,
       button: true,
-      label: '${item.title}, ${item.authorOrPublisher}',
+      label:
+          '${item.title}, ${item.authorOrPublisher}${item.attention.semanticLabel.isEmpty ? '' : ', ${item.attention.semanticLabel}'}${item.signalStrength >= 0.85 ? ', ${item.signalKind == SourceSidebarSignalKind.urgency ? 'urgent' : 'très pertinent'}' : ''}',
       child: Material(
         color: background,
         child: InkWell(
@@ -1732,12 +2197,38 @@ class _DenseSourceRow extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (item.tags.isNotEmpty)
+                    SizedBox(
+                      width:
+                          style.categoryIndicatorSize * 3 + style.tagDotGap * 3,
+                      child: _CategoryIndicators(
+                        categoryIds: item.tags,
+                        categoryFor: categoryFor,
+                        style: style,
+                      ),
+                    ),
                   Text(
                     _dateLabel(item.publishedAt),
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: colors.mutedForeground,
                     ),
                   ),
+                  if (item.attention != SourceSidebarAttention.none) ...[
+                    SizedBox(width: style.gapSmall),
+                    Tooltip(
+                      message: item.attention.semanticLabel,
+                      child: Icon(
+                        item.attention == SourceSidebarAttention.needsReview
+                            ? Icons.priority_high_rounded
+                            : Icons.schedule_send_outlined,
+                        size: style.actionIconSize,
+                        color:
+                            item.attention == SourceSidebarAttention.needsReview
+                            ? Theme.of(context).colorScheme.error
+                            : Theme.of(context).colorScheme.tertiary,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               SizedBox(height: style.denseTextGap),
@@ -1785,6 +2276,22 @@ class _DenseSourceRow extends StatelessWidget {
             ),
           ),
         ),
+        if (item.attention != SourceSidebarAttention.none)
+          Tooltip(
+            message: item.attention.semanticLabel,
+            child: Padding(
+              padding: EdgeInsets.only(right: style.gapSmall),
+              child: Icon(
+                item.attention == SourceSidebarAttention.needsReview
+                    ? Icons.priority_high_rounded
+                    : Icons.schedule_send_outlined,
+                size: style.actionIconSize,
+                color: item.attention == SourceSidebarAttention.needsReview
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).colorScheme.tertiary,
+              ),
+            ),
+          ),
         Expanded(
           flex: 2,
           child: item.tags.isEmpty
@@ -1852,6 +2359,7 @@ class _CategoryIndicators extends StatelessWidget {
 
 class _ReaderPane extends StatelessWidget {
   const _ReaderPane({
+    this.readerFooter,
     required this.item,
     required this.items,
     required this.style,
@@ -1873,6 +2381,7 @@ class _ReaderPane extends StatelessWidget {
   });
 
   final SourceSidebarItem item;
+  final Widget? readerFooter;
   final List<SourceSidebarItem> items;
   final SourceSidebarStyle style;
   final SourceSidebarColors colors;
@@ -1911,9 +2420,10 @@ class _ReaderPane extends StatelessWidget {
               builder: (context, constraints) {
                 final narrow = constraints.maxWidth < 520;
                 return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     _ActionIcon(
-                      tooltip: 'Back to sources',
+                      tooltip: 'Back to list',
                       icon: Icons.arrow_back,
                       onPressed: onBack,
                     ),
@@ -1980,7 +2490,6 @@ class _ReaderPane extends StatelessWidget {
                             ),
                         ],
                       ),
-                    const Spacer(),
                     if (index >= 0)
                       Text(
                         '${index + 1} of ${items.length}',
@@ -2134,13 +2643,9 @@ class _ReaderPane extends StatelessWidget {
                                 height: style.readerLineHeight,
                               ),
                         ),
-                        if (onIngest != null) ...[
-                          SizedBox(height: style.gap4XLarge),
-                          FilledButton.icon(
-                            onPressed: busy ? null : onIngest,
-                            icon: const Icon(Icons.auto_awesome_outlined),
-                            label: const Text('Send to project'),
-                          ),
+                        if (readerFooter != null) ...[
+                          SizedBox(height: style.gap3XLarge),
+                          readerFooter!,
                         ],
                         SizedBox(height: style.gap4XLarge),
                       ],

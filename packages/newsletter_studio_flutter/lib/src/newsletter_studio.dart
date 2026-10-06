@@ -1,10 +1,9 @@
 import 'dart:async';
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import 'newsletter_studio_hooks.dart';
+import 'newsletter_campaign_models.dart';
 import 'newsletter_studio_models.dart';
 import 'newsletter_studio_shortcuts.dart';
 import 'newsletter_studio_style.dart';
@@ -16,12 +15,16 @@ class NewsletterStudio extends StatefulWidget {
     super.key,
     this.availableSources = const <NewsletterSourceReference>[],
     this.audience,
+    this.availableAudiences = const [],
+    this.onAudienceChanged,
+    this.onScheduleChanged,
     this.sender,
     this.design,
     this.schedule,
     this.testReceipt,
     this.deliveryStatus,
     this.validationIssues = const <NewsletterValidationIssue>[],
+    this.linkReport,
     this.capabilities = const NewsletterStudioCapabilities(),
     this.style = const NewsletterStudioStyle(),
     this.shortcuts = const NewsletterStudioShortcuts(),
@@ -29,10 +32,13 @@ class NewsletterStudio extends StatefulWidget {
     this.onAttachSources,
     this.onResolveAudience,
     this.onValidateDraft,
+    this.onCheckLinks,
     this.onRenderPreview,
     this.onSendTest,
     this.onSchedule,
     this.onSend,
+    this.onSendWithLinkReport,
+    this.onScheduleWithLinkReport,
     this.onUnschedule,
     this.onOpenSource,
     this.onLoadDeliveryStatus,
@@ -40,10 +46,12 @@ class NewsletterStudio extends StatefulWidget {
     this.onBack,
     this.topBarActions = const <Widget>[],
   });
-
   final NewsletterDraft draft;
   final NewsletterDraftChanged onDraftChanged;
   final List<NewsletterSourceReference> availableSources;
+  final List<NewsletterAudienceSummary> availableAudiences;
+  final ValueChanged<NewsletterAudienceSummary>? onAudienceChanged;
+  final ValueChanged<NewsletterSchedule?>? onScheduleChanged;
   final NewsletterAudienceSummary? audience;
   final NewsletterSenderSummary? sender;
   final NewsletterDesignSummary? design;
@@ -51,6 +59,7 @@ class NewsletterStudio extends StatefulWidget {
   final NewsletterTestReceipt? testReceipt;
   final NewsletterDeliveryStatus? deliveryStatus;
   final List<NewsletterValidationIssue> validationIssues;
+  final NewsletterLinkCheckReport? linkReport;
   final NewsletterStudioCapabilities capabilities;
   final NewsletterStudioStyle style;
   final NewsletterStudioShortcuts shortcuts;
@@ -58,17 +67,19 @@ class NewsletterStudio extends StatefulWidget {
   final NewsletterSourcesAttacher? onAttachSources;
   final NewsletterAudienceResolver? onResolveAudience;
   final NewsletterDraftValidator? onValidateDraft;
+  final NewsletterLinkChecker? onCheckLinks;
   final NewsletterPreviewRenderer? onRenderPreview;
   final NewsletterTestSender? onSendTest;
   final NewsletterScheduler? onSchedule;
   final NewsletterSender? onSend;
+  final NewsletterLinkReportSender? onSendWithLinkReport;
+  final NewsletterLinkReportScheduler? onScheduleWithLinkReport;
   final NewsletterUnscheduler? onUnschedule;
   final NewsletterSourceOpener? onOpenSource;
   final NewsletterDeliveryStatusLoader? onLoadDeliveryStatus;
   final NewsletterAnalyticsLoader? onLoadAnalytics;
   final VoidCallback? onBack;
   final List<Widget> topBarActions;
-
   @override
   State<NewsletterStudio> createState() => _NewsletterStudioState();
 }
@@ -82,9 +93,11 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
   final _subjectFocus = FocusNode(debugLabel: 'Newsletter subject');
   final _sourceFocusNodes = <String, FocusNode>{};
   final _sourceKeys = <String, GlobalKey>{};
+  final _blockKeys = <String, GlobalKey>{};
+  final _blockUrlFocusNodes = <String, FocusNode>{};
+  final _titleController = TextEditingController();
   final _subjectController = TextEditingController();
   final _preheaderController = TextEditingController();
-
   late NewsletterDraft _draft;
   NewsletterAudienceSummary? _audience;
   NewsletterPreview? _preview;
@@ -96,16 +109,16 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
   _CompactPage _compactPage = _CompactPage.write;
   Timer? _autosaveTimer;
   int _editSerial = 0;
+  Future<bool>? _saveInFlight;
+  bool _saveRequested = false;
   String? _selectedSourceId;
   String? _selectedBlockId;
   String? _lastError;
   bool _showPreview = false;
   late double _zoom;
-
   NewsletterStudioColors get _colors =>
       widget.style.colors ??
       NewsletterStudioColors.fromColorScheme(Theme.of(context).colorScheme);
-
   bool get _isEditingText {
     final focusContext = FocusManager.instance.primaryFocus?.context;
     if (focusContext == null) return false;
@@ -113,9 +126,11 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         focusContext.findAncestorWidgetOfExactType<EditableText>() != null;
   }
 
-  bool get _isBusy => _operation != NewsletterOperationKind.idle &&
-      _operation != NewsletterOperationKind.failed;
+  bool get _canEdit => widget.capabilities.canEdit && !_isBusy;
 
+  bool get _isBusy =>
+      _operation != NewsletterOperationKind.idle &&
+      _operation != NewsletterOperationKind.failed;
   @override
   void initState() {
     super.initState();
@@ -138,9 +153,14 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
   @override
   void didUpdateWidget(covariant NewsletterStudio oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final incomingIsNewer = widget.draft.id != _draft.id ||
-        widget.draft.revision > _draft.revision;
+    final incomingIsNewer =
+        widget.draft.id != _draft.id || widget.draft.revision > _draft.revision;
     if (incomingIsNewer) {
+      if (widget.draft.id != _draft.id) {
+        _autosaveTimer?.cancel();
+        _saveRequested = false;
+        _editSerial += 1;
+      }
       _draft = widget.draft;
       _syncControllers();
     }
@@ -156,7 +176,9 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     _zoom = _zoom
         .clamp(widget.style.minimumZoom, widget.style.maximumZoom)
         .toDouble();
-    final sourceIds = widget.availableSources.map((source) => source.id).toSet();
+    final sourceIds = widget.availableSources
+        .map((source) => source.id)
+        .toSet();
     final removed = _sourceFocusNodes.keys
         .where((id) => !sourceIds.contains(id))
         .toList(growable: false);
@@ -175,15 +197,22 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     _inspectorFocus.dispose();
     _actionsFocus.dispose();
     _subjectFocus.dispose();
+    _titleController.dispose();
     _subjectController.dispose();
     _preheaderController.dispose();
     for (final node in _sourceFocusNodes.values) {
+      node.dispose();
+    }
+    for (final node in _blockUrlFocusNodes.values) {
       node.dispose();
     }
     super.dispose();
   }
 
   void _syncControllers() {
+    if (_titleController.text != _draft.title) {
+      _titleController.text = _draft.title;
+    }
     if (_subjectController.text != _draft.subject) {
       _subjectController.value = TextEditingValue(
         text: _draft.subject,
@@ -200,42 +229,99 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
 
   void _replaceDraft(NewsletterDraft next, {bool autosave = true}) {
     _editSerial += 1;
-    final dirty = next.copyWith(saveState: NewsletterSaveState.dirty);
+    final dirty = next.copyWith(
+      saveState: _draft.saveState == NewsletterSaveState.conflict
+          ? NewsletterSaveState.conflict
+          : NewsletterSaveState.dirty,
+    );
     setState(() {
       _draft = dirty;
       _preview = null;
+      _testReceipt = null;
       _lastError = null;
     });
+    final liveBlockIds = dirty.blocks.map((block) => block.id).toSet();
+    for (final id in _blockUrlFocusNodes.keys.toList()) {
+      if (!liveBlockIds.contains(id)) {
+        _blockUrlFocusNodes.remove(id)?.dispose();
+        _blockKeys.remove(id);
+      }
+    }
     widget.onDraftChanged(dirty);
     if (autosave) _scheduleAutosave();
   }
 
   void _scheduleAutosave() {
     _autosaveTimer?.cancel();
+    if (widget.onSaveDraft == null) return;
+    _autosaveTimer = Timer(widget.style.autosaveDelay, _flushSave);
+  }
+
+  Future<bool> _flushSave() async {
+    _autosaveTimer?.cancel();
     final save = widget.onSaveDraft;
-    if (save == null) return;
-    final serial = _editSerial;
-    _autosaveTimer = Timer(widget.style.autosaveDelay, () async {
-      if (!mounted) return;
-      setState(() => _draft = _draft.copyWith(saveState: NewsletterSaveState.saving));
+    if (save == null) return true;
+    if (_draft.saveState == NewsletterSaveState.conflict) return false;
+    _saveRequested = true;
+    if (_saveInFlight != null) return _saveInFlight!;
+    final completion = Completer<bool>();
+    _saveInFlight = completion.future;
+    var success = true;
+    while (_saveRequested && mounted) {
+      _saveRequested = false;
+      if (_draft.saveState == NewsletterSaveState.saved ||
+          _draft.saveState == NewsletterSaveState.clean) {
+        break;
+      }
+      final serial = _editSerial;
+      final snapshot = _draft;
+      setState(
+        () => _draft = _draft.copyWith(saveState: NewsletterSaveState.saving),
+      );
       widget.onDraftChanged(_draft);
       try {
-        final saved = await save(_draft);
-        if (!mounted || serial != _editSerial) return;
+        final saved = await save(snapshot);
+        if (!mounted || _draft.id != snapshot.id) {
+          success = false;
+          break;
+        }
         setState(() {
-          _draft = saved.copyWith(saveState: NewsletterSaveState.saved);
-          _lastError = null;
+          if (serial == _editSerial) {
+            _draft = saved.copyWith(saveState: NewsletterSaveState.saved);
+          } else {
+            _draft = _draft.copyWith(
+              revision: saved.revision,
+              saveState: NewsletterSaveState.dirty,
+            );
+            _saveRequested = true;
+          }
         });
         widget.onDraftChanged(_draft);
       } catch (error) {
-        if (!mounted || serial != _editSerial) return;
+        if (!mounted) {
+          success = false;
+          break;
+        }
+        final conflict = error is NewsletterSaveConflict;
         setState(() {
-          _draft = _draft.copyWith(saveState: NewsletterSaveState.failed);
-          _lastError = 'Draft save failed: $error';
+          _draft = _draft.copyWith(
+            saveState: conflict
+                ? NewsletterSaveState.conflict
+                : NewsletterSaveState.failed,
+          );
+          _lastError = conflict
+              ? 'Ce brouillon a été modifié ailleurs. Conservez vos changements et rechargez la campagne.'
+              : 'Enregistrement impossible. Vos modifications restent ici ; vérifiez votre connexion puis réessayez.';
         });
         widget.onDraftChanged(_draft);
+        _saveRequested = false;
+        success = false;
+        break;
       }
-    });
+    }
+    _saveInFlight = null;
+    completion.complete(success);
+    return success;
   }
 
   NewsletterSourceReference? get _selectedSource {
@@ -264,10 +350,10 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     final next = current < 0
         ? 0
         : !_sourcesFocus.hasFocus
-            ? current
-            : (current + delta)
-                  .clamp(0, widget.availableSources.length - 1)
-                  .toInt();
+        ? current
+        : (current + delta)
+              .clamp(0, widget.availableSources.length - 1)
+              .toInt();
     setState(() => _selectedSourceId = widget.availableSources[next].id);
     _focusSelectedSource();
   }
@@ -289,18 +375,22 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
   }
 
   Future<void> _toggleSelectedSource() async {
-    if (_isEditingText || !widget.capabilities.canEdit) return;
+    if (_isEditingText || !_canEdit) return;
     final source = _selectedSource;
     if (source == null) return;
-    final attached = _draft.sources.any((candidate) => candidate.id == source.id);
+    final attached = _draft.sources.any(
+      (candidate) => candidate.id == source.id,
+    );
     if (attached && _draft.usedSourceIds.contains(source.id)) {
       setState(() {
-        _lastError = 'Remove the source block before detaching this source.';
+        _lastError = 'Supprimez le bloc associé avant de retirer cette source.';
       });
       return;
     }
     final sources = attached
-        ? _draft.sources.where((candidate) => candidate.id != source.id).toList()
+        ? _draft.sources
+              .where((candidate) => candidate.id != source.id)
+              .toList()
         : [..._draft.sources, source];
     final attach = widget.onAttachSources;
     if (attach == null) {
@@ -312,12 +402,17 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       if (!mounted) return;
       _replaceDraft(next);
     } catch (error) {
-      if (mounted) setState(() => _lastError = 'Source update failed: $error');
+      if (mounted) {
+        setState(
+          () => _lastError =
+              'Opération non confirmée. Actualisez son état avant de réessayer.',
+        );
+      }
     }
   }
 
   void _insertSelectedSource() {
-    if (!widget.capabilities.canEdit) return;
+    if (!_canEdit) return;
     final source = _selectedSource;
     if (source == null) return;
     final sources = _draft.sources.any((item) => item.id == source.id)
@@ -331,21 +426,23 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       sourceId: source.id,
     );
     _selectedBlockId = block.id;
-    _replaceDraft(_draft.copyWith(sources: sources, blocks: [..._draft.blocks, block]));
+    _replaceDraft(
+      _draft.copyWith(sources: sources, blocks: [..._draft.blocks, block]),
+    );
   }
 
   void _addBlock(NewsletterBlockType type) {
-    if (!widget.capabilities.canEdit) return;
+    if (!_canEdit) return;
     final index = _draft.blocks.length;
     final block = NewsletterBlock(
       id: '${type.name}-$index-${_draft.revision}',
       type: type,
       text: switch (type) {
-        NewsletterBlockType.heading => 'New section',
-        NewsletterBlockType.button => 'Discover more',
+        NewsletterBlockType.heading => 'Nouvelle section',
+        NewsletterBlockType.button => 'En savoir plus',
         NewsletterBlockType.divider => '',
-        NewsletterBlockType.source => 'Source excerpt',
-        NewsletterBlockType.text => 'Start writing…',
+        NewsletterBlockType.source => 'Extrait de la source',
+        NewsletterBlockType.text => 'Commencez à écrire…',
       },
       label: type == NewsletterBlockType.button ? 'Button label' : null,
     );
@@ -366,7 +463,9 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
 
   void _moveBlock(NewsletterBlock block, int delta) {
     if (block.isProtected) return;
-    final current = _draft.blocks.indexWhere((candidate) => candidate.id == block.id);
+    final current = _draft.blocks.indexWhere(
+      (candidate) => candidate.id == block.id,
+    );
     if (current < 0) return;
     final next = (current + delta).clamp(0, _draft.blocks.length - 1).toInt();
     if (next == current) return;
@@ -393,7 +492,12 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     try {
       await open(source.id);
     } catch (error) {
-      if (mounted) setState(() => _lastError = 'Could not open source: $error');
+      if (mounted) {
+        setState(
+          () => _lastError =
+              'Opération non confirmée. Actualisez son état avant de réessayer.',
+        );
+      }
     }
   }
 
@@ -415,7 +519,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Audience resolution failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
@@ -450,7 +555,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Preview failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
@@ -470,9 +576,42 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     );
   }
 
+  Future<void> _pickSchedule() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: widget.schedule?.sendAt.toLocal().isAfter(now) == true
+          ? widget.schedule!.sendAt.toLocal()
+          : now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (!mounted || date == null) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 9, minute: 0),
+    );
+    if (!mounted || time == null) return;
+    final instant = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!instant.isAfter(DateTime.now())) {
+      setState(() => _lastError = 'Choisissez une date dans le futur.');
+      return;
+    }
+    widget.onScheduleChanged!(
+      NewsletterSchedule(sendAt: instant.toUtc(), timezoneLabel: 'UTC'),
+    );
+  }
+
   Future<void> _sendTest() async {
     final send = widget.onSendTest;
     if (!widget.capabilities.canTest || send == null || _isBusy) return;
+    if (!await _flushSave() || !mounted) return;
     setState(() {
       _operation = NewsletterOperationKind.testing;
       _lastError = null;
@@ -485,11 +624,18 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         _operation = NewsletterOperationKind.idle;
         _inspectorTab = _InspectorTab.send;
       });
+    } on NewsletterActionCancelled {
+      if (!mounted) return;
+      setState(() {
+        _operation = NewsletterOperationKind.idle;
+        _lastError = null;
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Test request failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
@@ -511,7 +657,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Unschedule request failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
@@ -536,7 +683,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Analytics request failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
@@ -561,7 +709,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Delivery status request failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
@@ -579,22 +728,26 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         const NewsletterValidationIssue(
           id: 'subject-empty',
           severity: NewsletterIssueSeverity.blocker,
-          title: 'Subject required',
-          message: 'Add a subject before delivery review.',
+          title: 'Objet requis',
+          message: 'Ajoutez un objet avant de vérifier l’envoi.',
           target: 'subject',
         ),
       );
     }
     final hasContent = _draft.blocks.any(
-      (block) => block.type == NewsletterBlockType.divider || block.text.trim().isNotEmpty,
+      (block) =>
+          block.type != NewsletterBlockType.divider &&
+          (block.type == NewsletterBlockType.button
+              ? (block.label ?? block.text).trim().isNotEmpty
+              : block.text.trim().isNotEmpty),
     );
     if (!hasContent) {
       add(
         const NewsletterValidationIssue(
           id: 'content-empty',
           severity: NewsletterIssueSeverity.blocker,
-          title: 'Content required',
-          message: 'Add at least one meaningful content block.',
+          title: 'Contenu requis',
+          message: 'Ajoutez au moins un bloc de contenu.',
           target: 'content',
         ),
       );
@@ -606,8 +759,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         const NewsletterValidationIssue(
           id: 'audience-unresolved',
           severity: NewsletterIssueSeverity.blocker,
-          title: 'Audience unresolved',
-          message: 'Resolve an eligible audience before scheduling or sending.',
+          title: 'Audience à vérifier',
+          message: 'Vérifiez l’audience avant de programmer ou d’envoyer.',
           target: 'audience',
         ),
       );
@@ -617,8 +770,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         const NewsletterValidationIssue(
           id: 'sender-unverified',
           severity: NewsletterIssueSeverity.blocker,
-          title: 'Sender not verified',
-          message: 'The host must verify the sender identity server-side.',
+          title: 'Expéditeur non vérifié',
+          message: 'L’identité de l’expéditeur doit être vérifiée.',
           target: 'sender',
         ),
       );
@@ -628,8 +781,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         const NewsletterValidationIssue(
           id: 'preheader-empty',
           severity: NewsletterIssueSeverity.warning,
-          title: 'Preheader missing',
-          message: 'A concise preheader improves inbox context.',
+          title: 'Texte d’aperçu manquant',
+          message: 'Ajoutez un court texte qui complète l’objet.',
           target: 'preheader',
         ),
       );
@@ -639,8 +792,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         const NewsletterValidationIssue(
           id: 'plain-text-missing',
           severity: NewsletterIssueSeverity.blocker,
-          title: 'Plain-text version missing',
-          message: 'Provide an equivalent plain-text message before delivery.',
+          title: 'Version texte manquante',
+          message: 'Une version texte équivalente est requise.',
           target: 'design',
         ),
       );
@@ -651,8 +804,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         const NewsletterValidationIssue(
           id: 'test-stale',
           severity: NewsletterIssueSeverity.warning,
-          title: 'Current revision not tested',
-          message: 'Send a test for this exact draft revision.',
+          title: 'Version actuelle non testée',
+          message: 'Envoyez un test de cette version du brouillon.',
           target: 'test',
         ),
       );
@@ -662,18 +815,30 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
 
   Future<List<NewsletterValidationIssue>> _validate() async {
     final validate = widget.onValidateDraft;
-    if (validate == null) return _localIssues();
+    if (validate == null && widget.onResolveAudience == null) {
+      return _localIssues();
+    }
     setState(() {
       _operation = NewsletterOperationKind.validating;
       _lastError = null;
     });
     try {
-      final hostIssues = await validate(_draft, _audience);
+      final resolve = widget.onResolveAudience;
+      if (resolve != null) {
+        final resolved = await resolve(_draft);
+        if (!mounted) return _localIssues();
+        setState(() => _audience = resolved);
+      }
+      final hostIssues = validate == null
+          ? const <NewsletterValidationIssue>[]
+          : await validate(_draft, _audience);
       if (!mounted) return _localIssues();
       setState(() => _operation = NewsletterOperationKind.idle);
       final merged = [..._localIssues()];
       for (final issue in hostIssues) {
-        final index = merged.indexWhere((candidate) => candidate.id == issue.id);
+        final index = merged.indexWhere(
+          (candidate) => candidate.id == issue.id,
+        );
         if (index < 0) {
           merged.add(issue);
         } else {
@@ -685,7 +850,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       if (mounted) {
         setState(() {
           _operation = NewsletterOperationKind.failed;
-          _lastError = 'Validation failed: $error';
+          _lastError =
+              'Opération non confirmée. Actualisez son état avant de réessayer.';
         });
       }
       return [
@@ -693,8 +859,9 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         NewsletterValidationIssue(
           id: 'host-validation-failed',
           severity: NewsletterIssueSeverity.blocker,
-          title: 'Authoritative validation unavailable',
-          message: '$error',
+          title: 'Validation indisponible',
+          message:
+              'Opération non confirmée. Actualisez son état avant de réessayer.',
         ),
       ];
     }
@@ -702,8 +869,11 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
 
   Future<void> _openReview() async {
     if (_isBusy) return;
+    if (!await _flushSave() || !mounted) return;
     var issues = await _validate();
     if (!mounted) return;
+    _linkReportInReview = widget.linkReport;
+    _linkCheckError = null;
     setState(() => _compactPage = _CompactPage.review);
     await showGeneralDialog<void>(
       context: context,
@@ -731,6 +901,42 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                     schedule: widget.schedule,
                     testReceipt: _testReceipt,
                     issues: issues,
+                    linkReport: _linkReportInReview,
+                    onCheckLinks: widget.onCheckLinks == null
+                        ? null
+                        : () async {
+                            final confirmed = await _confirmation(
+                              dialogContext,
+                              title: 'Vérifier les liens ? ',
+                              message:
+                                  'Cette vérification enverra des requêtes externes non authentifiées aux destinations du brouillon. Un GET limité peut suivre un HEAD refusé et provoquer un effet sur le site visé.',
+                              action: 'Vérifier les liens',
+                            );
+                            if (!confirmed || !dialogContext.mounted) return;
+                            setReviewState(() {
+                              _linkCheckBusy = true;
+                              _linkCheckError = null;
+                            });
+                            try {
+                              final report = await widget.onCheckLinks!(_draft);
+                              if (!dialogContext.mounted) return;
+                              setReviewState(() {
+                                _linkReportInReview = report;
+                                _linkCheckBusy = false;
+                              });
+                            } catch (_) {
+                              if (!dialogContext.mounted) return;
+                              setReviewState(() {
+                                _linkCheckBusy = false;
+                                _linkCheckError =
+                                    'La vérification n’a pas abouti. Actualisez son état avant de réessayer.';
+                              });
+                            }
+                          },
+                    linkCheckBusy: _linkCheckBusy,
+                    linkCheckError: _linkCheckError,
+                    onOpenLinkBlock: (blockId) =>
+                        _focusLinkBlock(dialogContext, blockId),
                     capabilities: widget.capabilities,
                     style: widget.style,
                     colors: _colors,
@@ -752,12 +958,27 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                             setReviewState(() => issues = refreshed);
                           },
                     onSchedule:
-                        widget.schedule == null || widget.onSchedule == null
-                            ? null
-                            : () => _confirmSchedule(dialogContext, issues),
-                    onSend: widget.onSend == null
+                        widget.schedule == null ||
+                            (widget.onSchedule == null &&
+                                widget.onScheduleWithLinkReport == null)
                         ? null
-                        : () => _confirmSend(dialogContext, issues),
+                        : ({required bool overrideUncertain}) =>
+                              _confirmSchedule(
+                                dialogContext,
+                                issues,
+                                report: _linkReportInReview,
+                                overrideUncertain: overrideUncertain,
+                              ),
+                    onSend:
+                        widget.onSend == null &&
+                            widget.onSendWithLinkReport == null
+                        ? null
+                        : ({required bool overrideUncertain}) => _confirmSend(
+                            dialogContext,
+                            issues,
+                            report: _linkReportInReview,
+                            overrideUncertain: overrideUncertain,
+                          ),
                     onClose: () => Navigator.pop(dialogContext),
                   ),
                 ),
@@ -779,6 +1000,38 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     _restoreWorkspaceFocus();
   }
 
+  bool _linkCheckBusy = false;
+  String? _linkCheckError;
+  NewsletterLinkCheckReport? _linkReportInReview;
+
+  void _focusLinkBlock(BuildContext reviewContext, String blockId) {
+    if (!reviewContext.mounted) return;
+    Navigator.pop(reviewContext);
+    setState(() {
+      _compactPage = _CompactPage.write;
+      _showPreview = false;
+      _selectedBlockId = blockId;
+      _inspectorTab = _InspectorTab.content;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // The review route retains its focus scope until the reverse transition
+      // finishes. Wait for it to leave the navigator before focusing the editor.
+      await Future<void>.delayed(widget.style.reviewTransitionDuration);
+      if (!mounted) return;
+      final key = _blockKeys[blockId];
+      final target = _blockUrlFocusNodes[blockId];
+      final context = key?.currentContext;
+      if (context != null && context.mounted) {
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.35,
+          duration: widget.style.focusScrollDuration,
+        );
+      }
+      target?.requestFocus();
+    });
+  }
+
   bool _hasBlockers(List<NewsletterValidationIssue> issues) {
     return issues.any(
       (issue) => issue.severity == NewsletterIssueSeverity.blocker,
@@ -787,58 +1040,107 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
 
   Future<void> _confirmSchedule(
     BuildContext reviewContext,
-    List<NewsletterValidationIssue> issues,
-  ) async {
+    List<NewsletterValidationIssue> issues, {
+    NewsletterLinkCheckReport? report,
+    bool overrideUncertain = false,
+  }) async {
     if (_hasBlockers(issues) || !widget.capabilities.canSchedule) return;
+    if (widget.onCheckLinks != null &&
+        (report == null ||
+            !report.isCurrentFor(_draft) ||
+            report.hasBlockers ||
+            (report.requiresOverride != overrideUncertain))) {
+      return;
+    }
     final schedule = widget.schedule;
     final callback = widget.onSchedule;
-    if (schedule == null || callback == null) return;
+    final linkCallback = widget.onScheduleWithLinkReport;
+    if (schedule == null || (callback == null && linkCallback == null)) return;
     final confirmed = await _confirmation(
       reviewContext,
-      title: 'Schedule this newsletter?',
-      message: 'The host will receive a request for ${_scheduleLabel(schedule)}.',
-      action: 'Confirm schedule',
+      title: overrideUncertain
+          ? 'Programmer malgré des liens non vérifiés ?'
+          : 'Programmer cette newsletter ?',
+      message: overrideUncertain
+          ? 'Certains liens restent incertains. Cette dérogation sera enregistrée avec votre approbation.'
+          : 'L’envoi sera demandé pour le ${_scheduleLabel(schedule)}.',
+      action: overrideUncertain
+          ? 'Déroger et programmer'
+          : 'Confirmer la programmation',
     );
-    if (!confirmed || !mounted) return;
+    if (!confirmed || !mounted || !reviewContext.mounted) return;
     Navigator.pop(reviewContext);
     setState(() => _operation = NewsletterOperationKind.scheduling);
     try {
-      await callback(_draft, schedule);
+      if (linkCallback != null && report != null) {
+        await linkCallback(
+          _draft,
+          schedule,
+          report,
+          overrideUncertain: overrideUncertain,
+        );
+      } else if (callback != null) {
+        await callback(_draft, schedule);
+      }
       if (mounted) setState(() => _operation = NewsletterOperationKind.idle);
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Schedule request failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
 
   Future<void> _confirmSend(
     BuildContext reviewContext,
-    List<NewsletterValidationIssue> issues,
-  ) async {
+    List<NewsletterValidationIssue> issues, {
+    NewsletterLinkCheckReport? report,
+    bool overrideUncertain = false,
+  }) async {
     if (_hasBlockers(issues) || !widget.capabilities.canSend) return;
     final callback = widget.onSend;
-    if (callback == null) return;
+    final linkCallback = widget.onSendWithLinkReport;
+    if (widget.onCheckLinks != null &&
+        (report == null ||
+            !report.isCurrentFor(_draft) ||
+            report.hasBlockers ||
+            (report.requiresOverride != overrideUncertain))) {
+      return;
+    }
+    if (callback == null && linkCallback == null) return;
     final confirmed = await _confirmation(
       reviewContext,
-      title: 'Send this newsletter now?',
-      message: 'This requests delivery to ${_audience?.eligibleCount ?? 0} eligible recipients.',
-      action: 'Confirm send',
+      title: overrideUncertain
+          ? 'Envoyer malgré des liens non vérifiés ?'
+          : 'Envoyer cette newsletter maintenant ?',
+      message: overrideUncertain
+          ? 'Certains liens restent incertains. Cette dérogation sera enregistrée avec votre approbation.'
+          : 'Cette action demande l’envoi à ${_audience?.eligibleCount ?? 0} destinataires éligibles.',
+      action: overrideUncertain ? 'Déroger et envoyer' : 'Confirmer l’envoi',
       destructive: true,
     );
-    if (!confirmed || !mounted) return;
+    if (!confirmed || !mounted || !reviewContext.mounted) return;
     Navigator.pop(reviewContext);
     setState(() => _operation = NewsletterOperationKind.sending);
     try {
-      await callback(_draft);
+      if (linkCallback != null && report != null) {
+        await linkCallback(
+          _draft,
+          report,
+          overrideUncertain: overrideUncertain,
+        );
+      } else if (callback != null) {
+        await callback(_draft);
+      }
       if (mounted) setState(() => _operation = NewsletterOperationKind.idle);
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _operation = NewsletterOperationKind.failed;
-        _lastError = 'Send request failed: $error';
+        _lastError =
+            'Opération non confirmée. Actualisez son état avant de réessayer.';
       });
     }
   }
@@ -858,7 +1160,7 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
+                child: const Text('Annuler'),
               ),
               FilledButton(
                 style: destructive
@@ -929,7 +1231,7 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Keyboard shortcuts'),
+        title: const Text('Raccourcis clavier'),
         content: const SingleChildScrollView(
           child: Text(
             'J / K  Navigate sources\n'
@@ -948,7 +1250,7 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
           TextButton(
             autofocus: true,
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: const Text('Fermer'),
           ),
         ],
       ),
@@ -1055,7 +1357,7 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
   Widget _buildWorkspace(double width) {
     final compact = width < widget.style.compactBreakpoint;
     final expanded = width >= widget.style.expandedBreakpoint;
-    return ColoredBox(
+    return Material(
       color: _colors.canvas,
       child: Column(
         children: [
@@ -1100,10 +1402,13 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (expanded)
-          SizedBox(width: widget.style.sourcePaneWidth, child: _buildSourcesPane())
+          SizedBox(
+            width: widget.style.sourcePaneWidth,
+            child: _buildSourcesPane(),
+          )
         else
           _RailButton(
-            tooltip: 'Open sources',
+            tooltip: 'Ouvrir les sources',
             icon: Icons.library_books_outlined,
             style: widget.style,
             colors: _colors,
@@ -1121,13 +1426,10 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
           color: _colors.divider,
         ),
         if (expanded)
-          SizedBox(
-            width: widget.style.inspectorWidth,
-            child: _buildInspector(),
-          )
+          SizedBox(width: widget.style.inspectorWidth, child: _buildInspector())
         else
           _RailButton(
-            tooltip: 'Open inspector',
+            tooltip: 'Ouvrir les réglages',
             icon: Icons.tune,
             style: widget.style,
             colors: _colors,
@@ -1159,11 +1461,11 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
             ),
             NavigationDestination(
               icon: Icon(Icons.edit_note_outlined),
-              label: 'Write',
+              label: 'Rédiger',
             ),
             NavigationDestination(
               icon: Icon(Icons.fact_check_outlined),
-              label: 'Review',
+              label: 'Vérifier',
             ),
           ],
         ),
@@ -1185,9 +1487,12 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text('Sources', style: Theme.of(context).textTheme.titleMedium),
+                    child: Text(
+                      'Sources',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                   ),
-                  Text('${_draft.sources.length} attached'),
+                  Text('${_draft.sources.length} jointes'),
                 ],
               ),
             ),
@@ -1200,8 +1505,9 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
               child: widget.availableSources.isEmpty
                   ? _EmptyPanel(
                       icon: Icons.inbox_outlined,
-                      title: 'No sources available',
-                      message: 'The host has not supplied sources for this draft.',
+                      title: 'Aucune source disponible',
+                      message:
+                          'The host has not supplied sources for this draft.',
                       style: widget.style,
                     )
                   : ListView.builder(
@@ -1255,7 +1561,9 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: widget.style.emailCanvasWidth),
+            constraints: BoxConstraints(
+              maxWidth: widget.style.emailCanvasWidth,
+            ),
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: _colors.surface,
@@ -1271,14 +1579,66 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TextField(
+                      controller: _titleController,
+                      enabled: _canEdit,
+                      maxLength: 160,
+                      decoration: const InputDecoration(
+                        labelText: 'Nom de la campagne',
+                      ),
+                      onChanged: (value) =>
+                          _replaceDraft(_draft.copyWith(title: value)),
+                    ),
+                    if (widget.availableAudiences.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            widget.availableAudiences.any(
+                              (item) => item.id == _audience?.id,
+                            )
+                            ? _audience?.id
+                            : null,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Audience',
+                        ),
+                        items: widget.availableAudiences
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item.id,
+                                child: Text(
+                                  item.label,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _canEdit && widget.onAudienceChanged != null
+                            ? (id) {
+                                final selected = widget.availableAudiences
+                                    .firstWhere((item) => item.id == id);
+                                setState(() => _audience = selected);
+                                widget.onAudienceChanged!(selected);
+                              }
+                            : null,
+                      ),
+                    if (widget.onScheduleChanged != null)
+                      TextButton.icon(
+                        onPressed: _canEdit ? _pickSchedule : null,
+                        icon: const Icon(Icons.schedule),
+                        label: Text(
+                          widget.schedule == null
+                              ? 'Choisir une date d’envoi'
+                              : _scheduleLabel(widget.schedule!),
+                        ),
+                      ),
+                    TextField(
                       controller: _subjectController,
                       focusNode: _subjectFocus,
-                      enabled: widget.capabilities.canEdit,
+                      enabled: _canEdit,
                       textInputAction: TextInputAction.next,
                       style: Theme.of(context).textTheme.headlineSmall,
                       decoration: const InputDecoration(
-                        labelText: 'Subject',
-                        hintText: 'A clear reason to open this newsletter',
+                        labelText: 'Objet',
+                        hintText: 'Une bonne raison d’ouvrir cette newsletter',
                         border: InputBorder.none,
                       ),
                       onChanged: (value) {
@@ -1287,11 +1647,11 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                     ),
                     TextField(
                       controller: _preheaderController,
-                      enabled: widget.capabilities.canEdit,
+                      enabled: _canEdit,
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'Preheader',
-                        hintText: 'Inbox context that complements the subject',
+                        labelText: 'Texte d’aperçu',
+                        hintText: 'Une phrase qui complète l’objet',
                         border: InputBorder.none,
                       ),
                       onChanged: (value) {
@@ -1302,18 +1662,33 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                     if (_draft.blocks.isEmpty)
                       _EmptyPanel(
                         icon: Icons.edit_note_outlined,
-                        title: 'Start with a block or source',
-                        message: 'Add text below or insert a selected source from the source pane.',
+                        title: 'Commencez par un bloc ou une source',
+                        message:
+                            'Ajoutez du texte ou insérez un extrait de vos sources.',
                         style: widget.style,
                       )
                     else
                       for (var index = 0; index < _draft.blocks.length; index++)
                         Padding(
-                          padding: EdgeInsets.only(bottom: widget.style.mediumGap),
+                          key: _blockKeys.putIfAbsent(
+                            _draft.blocks[index].id,
+                            GlobalKey.new,
+                          ),
+                          padding: EdgeInsets.only(
+                            bottom: widget.style.mediumGap,
+                          ),
                           child: _BlockCard(
                             block: _draft.blocks[index],
-                            selected: _selectedBlockId == _draft.blocks[index].id,
-                            canEdit: widget.capabilities.canEdit,
+                            urlFocusNode: _blockUrlFocusNodes.putIfAbsent(
+                              _draft.blocks[index].id,
+                              () => FocusNode(
+                                debugLabel:
+                                    'Newsletter link ${_draft.blocks[index].id}',
+                              ),
+                            ),
+                            selected:
+                                _selectedBlockId == _draft.blocks[index].id,
+                            canEdit: _canEdit,
                             canMoveUp: index > 0,
                             canMoveDown: index < _draft.blocks.length - 1,
                             style: widget.style,
@@ -1325,10 +1700,13 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                               });
                             },
                             onChanged: _updateBlock,
-                            onMoveUp: () => _moveBlock(_draft.blocks[index], -1),
-                            onMoveDown: () => _moveBlock(_draft.blocks[index], 1),
+                            onMoveUp: () =>
+                                _moveBlock(_draft.blocks[index], -1),
+                            onMoveDown: () =>
+                                _moveBlock(_draft.blocks[index], 1),
                             onDelete: () => _removeBlock(_draft.blocks[index]),
-                            onOpenSource: widget.onOpenSource == null ||
+                            onOpenSource:
+                                widget.onOpenSource == null ||
                                     _draft.blocks[index].sourceId == null
                                 ? null
                                 : () async {
@@ -1339,7 +1717,7 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                           ),
                         ),
                     _AddBlockBar(
-                      enabled: widget.capabilities.canEdit,
+                      enabled: _canEdit,
                       style: widget.style,
                       onAdd: _addBlock,
                     ),
@@ -1354,7 +1732,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
   }
 
   Widget _buildPreview() {
-    final preview = _preview ?? _localPreview(NewsletterPreviewViewport.desktop);
+    final preview =
+        _preview ?? _localPreview(NewsletterPreviewViewport.desktop);
     return SingleChildScrollView(
       padding: widget.style.canvasPadding,
       child: Align(
@@ -1379,7 +1758,7 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                     children: [
                       const Icon(Icons.visibility_outlined),
                       SizedBox(width: widget.style.smallGap),
-                      const Expanded(child: Text('Preview')),
+                      const Expanded(child: Text('Aperçu')),
                       Chip(
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(
@@ -1388,14 +1767,17 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                         ),
                         label: Text(
                           preview.isApproximate
-                              ? 'Approximate · revision ${preview.revision}'
-                              : 'Rendered · revision ${preview.revision}',
+                              ? 'Aperçu approximatif · version ${preview.revision}'
+                              : 'Aperçu généré · version ${preview.revision}',
                         ),
                       ),
                     ],
                   ),
                   SizedBox(height: widget.style.extraLargeGap),
-                  Text(preview.subject, style: Theme.of(context).textTheme.headlineSmall),
+                  Text(
+                    preview.subject,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
                   if (preview.preheader.isNotEmpty) ...[
                     SizedBox(height: widget.style.smallGap),
                     Text(
@@ -1407,7 +1789,7 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
                   SelectableText(preview.plainText),
                   SizedBox(height: widget.style.extraLargeGap),
                   Text(
-                    'This Flutter preview does not prove received-client rendering or deliverability.',
+                    'Vérifiez le rendu final dans votre boîte mail à l’aide d’un envoi test.',
                     style: TextStyle(color: _colors.mutedForeground),
                   ),
                 ],
@@ -1427,74 +1809,78 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
+            Padding(
               padding: widget.style.panelPadding,
-              child: SegmentedButton<_InspectorTab>(
-                segments: const [
-                  ButtonSegment(value: _InspectorTab.content, label: Text('Content')),
-                  ButtonSegment(value: _InspectorTab.design, label: Text('Design')),
-                  ButtonSegment(value: _InspectorTab.audience, label: Text('Audience')),
-                  ButtonSegment(value: _InspectorTab.send, label: Text('Send')),
+              child: Wrap(
+                spacing: widget.style.smallGap,
+                runSpacing: widget.style.smallGap,
+                children: [
+                  for (final entry in const {
+                    _InspectorTab.content: 'Contenu',
+                    _InspectorTab.design: 'Apparence',
+                    _InspectorTab.audience: 'Audience',
+                    _InspectorTab.send: 'Envoi',
+                  }.entries)
+                    ChoiceChip(
+                      label: Text(entry.value),
+                      selected: _inspectorTab == entry.key,
+                      showCheckmark: false,
+                      onSelected: (_) =>
+                          setState(() => _inspectorTab = entry.key),
+                    ),
                 ],
-                selected: {_inspectorTab},
-                onSelectionChanged: (selection) {
-                  setState(() => _inspectorTab = selection.first);
-                },
-                showSelectedIcon: false,
               ),
-            ),
-            Divider(
-              height: widget.style.dividerThickness,
-              thickness: widget.style.dividerThickness,
-              color: _colors.divider,
             ),
             Expanded(
               child: SingleChildScrollView(
                 padding: widget.style.panelPadding,
                 child: switch (_inspectorTab) {
                   _InspectorTab.content => _ContentInspector(
-                      block: _selectedBlock,
-                      sourceCount: _draft.sources.length,
-                      usedSourceCount: _draft.usedSourceIds.length,
-                      style: widget.style,
-                      colors: _colors,
-                    ),
+                    block: _selectedBlock,
+                    sourceCount: _draft.sources.length,
+                    usedSourceCount: _draft.usedSourceIds.length,
+                    style: widget.style,
+                    colors: _colors,
+                  ),
                   _InspectorTab.design => _DesignInspector(
-                      design: widget.design,
-                      style: widget.style,
-                      colors: _colors,
-                    ),
+                    design: widget.design,
+                    style: widget.style,
+                    colors: _colors,
+                  ),
                   _InspectorTab.audience => _AudienceInspector(
-                      audience: _audience,
-                      canResolve: widget.onResolveAudience != null,
-                      isBusy: _isBusy,
-                      style: widget.style,
-                      colors: _colors,
-                      onResolve: _resolveAudience,
-                    ),
+                    audience: _audience,
+                    canResolve: widget.onResolveAudience != null,
+                    isBusy: _isBusy,
+                    style: widget.style,
+                    colors: _colors,
+                    onResolve: _resolveAudience,
+                  ),
                   _InspectorTab.send => _SendInspector(
-                      sender: widget.sender,
-                      schedule: widget.schedule,
-                      testReceipt: _testReceipt,
-                      deliveryStatus: _deliveryStatus,
-                      analytics: _analytics,
-                      currentRevision: _draft.revision,
-                      canUnschedule: widget.schedule != null &&
-                          widget.capabilities.canUnschedule &&
-                          widget.onUnschedule != null,
-                      canLoadAnalytics: widget.capabilities.canViewAnalytics &&
-                          widget.onLoadAnalytics != null,
-                      canLoadDeliveryStatus:
-                          widget.capabilities.canViewDeliveryStatus &&
-                          widget.onLoadDeliveryStatus != null,
-                      isBusy: _isBusy,
-                      style: widget.style,
-                      colors: _colors,
-                      onUnschedule: _unschedule,
-                      onLoadAnalytics: _loadAnalytics,
-                      onLoadDeliveryStatus: _loadDeliveryStatus,
-                    ),
+                    sender: widget.sender,
+                    schedule: widget.schedule,
+                    testReceipt: _testReceipt,
+                    deliveryStatus: _deliveryStatus,
+                    analytics: _analytics,
+                    analyticsUnavailableReason:
+                        widget.capabilities.analyticsUnavailableReason,
+                    currentRevision: _draft.revision,
+                    canUnschedule:
+                        widget.schedule != null &&
+                        widget.capabilities.canUnschedule &&
+                        widget.onUnschedule != null,
+                    canLoadAnalytics:
+                        widget.capabilities.canViewAnalytics &&
+                        widget.onLoadAnalytics != null,
+                    canLoadDeliveryStatus:
+                        widget.capabilities.canViewDeliveryStatus &&
+                        widget.onLoadDeliveryStatus != null,
+                    isBusy: _isBusy,
+                    style: widget.style,
+                    colors: _colors,
+                    onUnschedule: _unschedule,
+                    onLoadAnalytics: _loadAnalytics,
+                    onLoadDeliveryStatus: _loadDeliveryStatus,
+                  ),
                 },
               ),
             ),
@@ -1511,7 +1897,8 @@ class _NewsletterStudioState extends State<NewsletterStudio> {
       showDragHandle: true,
       builder: (context) => SafeArea(
         child: SizedBox(
-          height: MediaQuery.sizeOf(context).height *
+          height:
+              MediaQuery.sizeOf(context).height *
               widget.style.panelSheetHeightFactor,
           child: child,
         ),
@@ -1527,11 +1914,9 @@ class _ZoomViewport extends StatelessWidget {
     required this.onPointerSignal,
     required this.child,
   });
-
   final double zoom;
   final ValueChanged<PointerSignalEvent> onPointerSignal;
   final Widget child;
-
   @override
   Widget build(BuildContext context) {
     return Listener(
@@ -1577,7 +1962,6 @@ class _TopBar extends StatelessWidget {
     required this.onReview,
     required this.actions,
   });
-
   final NewsletterDraft draft;
   final NewsletterAudienceSummary? audience;
   final NewsletterOperationKind operation;
@@ -1592,7 +1976,6 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onTest;
   final VoidCallback onReview;
   final List<Widget> actions;
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1611,7 +1994,7 @@ class _TopBar extends StatelessWidget {
         children: [
           if (onBack != null)
             IconButton(
-              tooltip: 'Back to newsletters',
+              tooltip: 'Retour aux campagnes',
               onPressed: onBack,
               icon: const Icon(Icons.arrow_back),
             ),
@@ -1642,24 +2025,27 @@ class _TopBar extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(style.chipRadius),
                 ),
-                avatar: Icon(
-                  Icons.group_outlined,
-                  size: style.compactIconSize,
-                ),
-                label: Text('${audience!.eligibleCount} recipients'),
+                avatar: Icon(Icons.group_outlined, size: style.compactIconSize),
+                label: Text('${audience!.eligibleCount} destinataires'),
               ),
             ),
           IconButton(
-            tooltip: showPreview ? 'Return to editor (Ctrl/Command+P)' : 'Preview (Ctrl/Command+P)',
+            tooltip: showPreview
+                ? 'Return to editor (Ctrl/Command+P)'
+                : 'Aperçu (Ctrl/Commande+P)',
             onPressed: capabilities.canPreview ? onPreview : null,
-            icon: Icon(showPreview ? Icons.edit_outlined : Icons.visibility_outlined),
+            icon: Icon(
+              showPreview ? Icons.edit_outlined : Icons.visibility_outlined,
+            ),
           ),
           if (!compact)
             TextButton.icon(
               onPressed: capabilities.canTest ? onTest : null,
               icon: const Icon(Icons.send_outlined),
               label: Text(
-                testReceipt?.draftRevision == draft.revision ? 'Tested' : 'Test',
+                testReceipt?.draftRevision == draft.revision
+                    ? 'Test effectué'
+                    : 'Test',
               ),
             ),
           SizedBox(width: style.smallGap),
@@ -1670,7 +2056,7 @@ class _TopBar extends StatelessWidget {
             ),
             onPressed: onReview,
             icon: const Icon(Icons.fact_check_outlined),
-            label: Text(compact ? 'Review' : 'Review and schedule'),
+            label: Text(compact ? 'Vérifier' : 'Vérifier et programmer'),
           ),
           ...actions,
         ],
@@ -1685,25 +2071,26 @@ class _TopBar extends StatelessWidget {
     if (operation != NewsletterOperationKind.idle &&
         operation != NewsletterOperationKind.failed) {
       return switch (operation) {
-        NewsletterOperationKind.validating => 'Validating…',
-        NewsletterOperationKind.previewing => 'Rendering preview…',
-        NewsletterOperationKind.testing => 'Sending test…',
-        NewsletterOperationKind.scheduling => 'Scheduling…',
-        NewsletterOperationKind.unscheduling => 'Removing schedule…',
-        NewsletterOperationKind.sending => 'Sending…',
-        NewsletterOperationKind.loadingStatus => 'Loading delivery status…',
-        NewsletterOperationKind.loadingAnalytics => 'Loading analytics…',
-        _ => 'Working…',
+        NewsletterOperationKind.validating => 'Validation…',
+        NewsletterOperationKind.previewing => 'Préparation de l’aperçu…',
+        NewsletterOperationKind.testing => 'Envoi du test…',
+        NewsletterOperationKind.scheduling => 'Programmation…',
+        NewsletterOperationKind.unscheduling =>
+          'Annulation de la programmation…',
+        NewsletterOperationKind.sending => 'Envoi…',
+        NewsletterOperationKind.loadingStatus => 'Chargement de l’état…',
+        NewsletterOperationKind.loadingAnalytics => 'Chargement des résultats…',
+        _ => 'En cours…',
       };
     }
     return switch (saveState) {
-      NewsletterSaveState.clean => 'No unsaved changes',
-      NewsletterSaveState.dirty => 'Unsaved changes',
-      NewsletterSaveState.saving => 'Saving…',
-      NewsletterSaveState.saved => 'Saved',
-      NewsletterSaveState.conflict => 'Save conflict',
-      NewsletterSaveState.offline => 'Offline draft',
-      NewsletterSaveState.failed => 'Save failed',
+      NewsletterSaveState.clean => 'À jour',
+      NewsletterSaveState.dirty => 'Modifications non enregistrées',
+      NewsletterSaveState.saving => 'Enregistrement…',
+      NewsletterSaveState.saved => 'Enregistré',
+      NewsletterSaveState.conflict => 'Conflit de versions',
+      NewsletterSaveState.offline => 'Brouillon hors ligne',
+      NewsletterSaveState.failed => 'Enregistrement impossible',
     };
   }
 }
@@ -1723,7 +2110,6 @@ class _SourceRow extends StatelessWidget {
     required this.onOpen,
     super.key,
   });
-
   final NewsletterSourceReference source;
   final bool selected;
   final bool attached;
@@ -1735,13 +2121,13 @@ class _SourceRow extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onInsert;
   final VoidCallback? onOpen;
-
   @override
   Widget build(BuildContext context) {
     return Semantics(
       selected: selected,
       checked: attached,
-      label: '${source.title}, ${attached ? 'attached' : 'not attached'}${used ? ', used' : ''}',
+      label:
+          '${source.title}, ${attached ? 'attached' : 'not attached'}${used ? ', used' : ''}',
       child: Material(
         color: selected ? colors.selectedSurface : colors.surface,
         child: InkWell(
@@ -1783,22 +2169,28 @@ class _SourceRow extends StatelessWidget {
                       if (used)
                         Padding(
                           padding: EdgeInsets.only(top: style.smallGap),
-                          child: const Text('Used in draft'),
+                          child: const Text('Utilisée'),
                         ),
                     ],
                   ),
                 ),
                 PopupMenuButton<String>(
-                  tooltip: 'Source actions',
+                  tooltip: 'Actions de la source',
                   onSelected: (value) {
                     onSelected();
                     if (value == 'insert') onInsert();
                     if (value == 'open') onOpen?.call();
                   },
                   itemBuilder: (context) => [
-                    const PopupMenuItem(value: 'insert', child: Text('Insert excerpt')),
+                    const PopupMenuItem(
+                      value: 'insert',
+                      child: Text('Insérer un extrait'),
+                    ),
                     if (onOpen != null)
-                      const PopupMenuItem(value: 'open', child: Text('Open source')),
+                      const PopupMenuItem(
+                        value: 'open',
+                        child: Text('Ouvrir la source'),
+                      ),
                   ],
                 ),
               ],
@@ -1813,6 +2205,7 @@ class _SourceRow extends StatelessWidget {
 class _BlockCard extends StatelessWidget {
   const _BlockCard({
     required this.block,
+    required this.urlFocusNode,
     required this.selected,
     required this.canEdit,
     required this.canMoveUp,
@@ -1826,8 +2219,8 @@ class _BlockCard extends StatelessWidget {
     required this.onDelete,
     required this.onOpenSource,
   });
-
   final NewsletterBlock block;
+  final FocusNode urlFocusNode;
   final bool selected;
   final bool canEdit;
   final bool canMoveUp;
@@ -1840,7 +2233,6 @@ class _BlockCard extends StatelessWidget {
   final VoidCallback onMoveDown;
   final VoidCallback onDelete;
   final VoidCallback? onOpenSource;
-
   @override
   Widget build(BuildContext context) {
     if (block.type == NewsletterBlockType.divider) {
@@ -1870,17 +2262,14 @@ class _BlockCard extends StatelessWidget {
               SizedBox(width: style.smallGap),
               Expanded(
                 child: Text(
-                  block.type.name.toUpperCase(),
+                  block.type.label.toUpperCase(),
                   style: Theme.of(context).textTheme.labelSmall,
                 ),
               ),
               if (block.isProtected)
                 Tooltip(
-                  message: 'Protected block',
-                  child: Icon(
-                    Icons.lock_outline,
-                    size: style.compactIconSize,
-                  ),
+                  message: 'Bloc protégé',
+                  child: Icon(Icons.lock_outline, size: style.compactIconSize),
                 ),
               _actions(),
             ],
@@ -1897,23 +2286,62 @@ class _BlockCard extends StatelessWidget {
                 : null,
             decoration: InputDecoration(
               hintText: block.type == NewsletterBlockType.source
-                  ? 'Source excerpt'
-                  : 'Write content',
+                  ? 'Extrait de la source'
+                  : 'Rédigez votre contenu',
               border: InputBorder.none,
             ),
             onTap: onSelected,
             onChanged: (value) => onChanged(block.copyWith(text: value)),
           ),
+          if (block.type == NewsletterBlockType.button) ...[
+            TextFormField(
+              key: ValueKey('newsletter-label-${block.id}'),
+              initialValue: block.label,
+              enabled: canEdit && !block.isProtected,
+              decoration: const InputDecoration(labelText: 'Texte du bouton'),
+              onChanged: (value) => onChanged(block.copyWith(label: value)),
+            ),
+          ],
+          if (block.type == NewsletterBlockType.button ||
+              block.type == NewsletterBlockType.source) ...[
+            TextFormField(
+              key: ValueKey('newsletter-url-${block.id}'),
+              focusNode: urlFocusNode,
+              initialValue: block.rawUrl ?? block.url?.toString(),
+              enabled: canEdit && !block.isProtected,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                labelText: block.type == NewsletterBlockType.button
+                    ? 'Lien du bouton'
+                    : 'Lien de la source',
+                hintText: 'https://…',
+              ),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              validator: (value) {
+                final uri = Uri.tryParse(value ?? '');
+                return uri != null &&
+                        uri.scheme == 'https' &&
+                        uri.host.isNotEmpty &&
+                        uri.userInfo.isEmpty &&
+                        (uri.hasPort == false || uri.port == 443)
+                    ? null
+                    : 'Indiquez une adresse HTTPS complète.';
+              },
+              onChanged: (value) => onChanged(
+                block.copyWith(
+                  url: Uri.tryParse(value) ?? Uri(),
+                  rawUrl: value,
+                ),
+              ),
+            ),
+          ],
           if (block.type == NewsletterBlockType.source && onOpenSource != null)
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
                 onPressed: onOpenSource,
-                icon: Icon(
-                  Icons.open_in_new,
-                  size: style.compactIconSize,
-                ),
-                label: Text(block.label ?? 'Open source'),
+                icon: Icon(Icons.open_in_new, size: style.compactIconSize),
+                label: Text(block.label ?? 'Ouvrir la source'),
               ),
             ),
         ],
@@ -1924,7 +2352,7 @@ class _BlockCard extends StatelessWidget {
   Widget _frame(BuildContext context, {required Widget child}) {
     return Semantics(
       selected: selected,
-      label: '${block.type.name} block${block.isProtected ? ', protected' : ''}',
+      label: 'Bloc ${block.type.label}${block.isProtected ? ', protégé' : ''}',
       child: InkWell(
         onTap: onSelected,
         borderRadius: BorderRadius.circular(style.blockRadius),
@@ -1950,19 +2378,21 @@ class _BlockCard extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          tooltip: 'Move block up',
-          onPressed: canEdit && canMoveUp && !block.isProtected ? onMoveUp : null,
+          tooltip: 'Monter le bloc',
+          onPressed: canEdit && canMoveUp && !block.isProtected
+              ? onMoveUp
+              : null,
           icon: const Icon(Icons.keyboard_arrow_up),
         ),
         IconButton(
-          tooltip: 'Move block down',
+          tooltip: 'Descendre le bloc',
           onPressed: canEdit && canMoveDown && !block.isProtected
               ? onMoveDown
               : null,
           icon: const Icon(Icons.keyboard_arrow_down),
         ),
         IconButton(
-          tooltip: 'Delete block',
+          tooltip: 'Supprimer le bloc',
           onPressed: canEdit && !block.isProtected ? onDelete : null,
           icon: const Icon(Icons.delete_outline),
         ),
@@ -1987,11 +2417,9 @@ class _AddBlockBar extends StatelessWidget {
     required this.style,
     required this.onAdd,
   });
-
   final bool enabled;
   final NewsletterStudioStyle style;
   final ValueChanged<NewsletterBlockType> onAdd;
-
   @override
   Widget build(BuildContext context) {
     return Wrap(
@@ -2009,7 +2437,7 @@ class _AddBlockBar extends StatelessWidget {
               _BlockCard._iconFor(type),
               size: style.compactIconSize,
             ),
-            label: Text('Add ${type.name}'),
+            label: Text('Ajouter : ${type.label}'),
             onPressed: enabled ? () => onAdd(type) : null,
           ),
       ],
@@ -2025,37 +2453,38 @@ class _ContentInspector extends StatelessWidget {
     required this.style,
     required this.colors,
   });
-
   final NewsletterBlock? block;
   final int sourceCount;
   final int usedSourceCount;
   final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
-
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Draft content', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'Contenu du brouillon',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         SizedBox(height: style.mediumGap),
         _SummaryRow(
-          label: 'Attached sources',
+          label: 'Sources jointes',
           value: '$sourceCount',
           style: style,
         ),
         _SummaryRow(
-          label: 'Used sources',
+          label: 'Sources utilisées',
           value: '$usedSourceCount',
           style: style,
         ),
         SizedBox(height: style.extraLargeGap),
-        Text('Selected block', style: Theme.of(context).textTheme.titleSmall),
+        Text('Bloc sélectionné', style: Theme.of(context).textTheme.titleSmall),
         SizedBox(height: style.smallGap),
         Text(
           block == null
-              ? 'Select a block to inspect its role and provenance.'
-              : '${block!.type.name}${block!.sourceId == null ? '' : ' · source-linked'}${block!.isProtected ? ' · protected' : ''}',
+              ? 'Sélectionnez un bloc pour consulter sa source.'
+              : '${block!.type.label}${block!.sourceId == null ? '' : ' · lié à une source'}${block!.isProtected ? ' · protégé' : ''}',
           style: TextStyle(color: colors.mutedForeground),
         ),
       ],
@@ -2069,39 +2498,41 @@ class _DesignInspector extends StatelessWidget {
     required this.style,
     required this.colors,
   });
-
   final NewsletterDesignSummary? design;
   final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
-
   @override
   Widget build(BuildContext context) {
     final value = design;
     if (value == null) {
       return _EmptyPanel(
         icon: Icons.palette_outlined,
-        title: 'Design supplied by the host',
-        message: 'The host will provide the brand and email template summary.',
+        title: 'Apparence à configurer',
+        message:
+            'La marque et le modèle d’email ne sont pas encore configurés.',
         style: style,
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Email design', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'Apparence de l’email',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         SizedBox(height: style.mediumGap),
-        _SummaryRow(label: 'Template', value: value.templateName, style: style),
-        _SummaryRow(label: 'Brand', value: value.brandName, style: style),
-        _SummaryRow(label: 'Language', value: value.language, style: style),
+        _SummaryRow(label: 'Modèle', value: value.templateName, style: style),
+        _SummaryRow(label: 'Marque', value: value.brandName, style: style),
+        _SummaryRow(label: 'Langue', value: value.language, style: style),
         _SummaryRow(label: 'Direction', value: value.direction, style: style),
         _SummaryRow(
-          label: 'Plain text',
-          value: value.hasPlainTextAlternative ? 'Available' : 'Missing',
+          label: 'Texte brut',
+          value: value.hasPlainTextAlternative ? 'Disponible' : 'Manquant',
           style: style,
         ),
         SizedBox(height: style.largeGap),
         Text(
-          'Final HTML, accessibility and client rendering remain server and delivery proof responsibilities.',
+          'L’aperçu est indicatif. Vérifiez aussi le rendu du message test dans votre boîte mail.',
           style: TextStyle(color: colors.mutedForeground),
         ),
       ],
@@ -2118,14 +2549,12 @@ class _AudienceInspector extends StatelessWidget {
     required this.colors,
     required this.onResolve,
   });
-
   final NewsletterAudienceSummary? audience;
   final bool canResolve;
   final bool isBusy;
   final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
   final VoidCallback onResolve;
-
   @override
   Widget build(BuildContext context) {
     final value = audience;
@@ -2136,24 +2565,28 @@ class _AudienceInspector extends StatelessWidget {
         SizedBox(height: style.mediumGap),
         if (value == null)
           Text(
-            'No audience summary has been resolved.',
+            'L’audience n’a pas encore été vérifiée.',
             style: TextStyle(color: colors.mutedForeground),
           )
         else ...[
           _SummaryRow(label: 'Segment', value: value.label, style: style),
           _SummaryRow(
-            label: 'Eligible',
+            label: 'Éligibles',
             value: '${value.eligibleCount}',
             style: style,
           ),
           _SummaryRow(
-            label: 'Excluded',
+            label: 'Exclus',
             value: '${value.excludedCount}',
             style: style,
           ),
           _SummaryRow(
-            label: 'State',
-            value: value.isStale ? 'Stale' : value.isResolved ? 'Resolved' : 'Pending',
+            label: 'État',
+            value: value.isStale
+                ? 'À actualiser'
+                : value.isResolved
+                ? 'Vérifiée'
+                : 'En attente',
             style: style,
           ),
         ],
@@ -2161,11 +2594,11 @@ class _AudienceInspector extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: canResolve && !isBusy ? onResolve : null,
           icon: const Icon(Icons.refresh),
-          label: const Text('Resolve audience'),
+          label: const Text('Vérifier l’audience'),
         ),
         SizedBox(height: style.mediumGap),
         Text(
-          'Recipient identities stay in the host and are not exposed by this public component.',
+          'Seuls les destinataires éligibles au moment de l’envoi recevront le message.',
           style: TextStyle(color: colors.mutedForeground),
         ),
       ],
@@ -2180,6 +2613,7 @@ class _SendInspector extends StatelessWidget {
     required this.testReceipt,
     required this.deliveryStatus,
     required this.analytics,
+    required this.analyticsUnavailableReason,
     required this.currentRevision,
     required this.canUnschedule,
     required this.canLoadAnalytics,
@@ -2191,12 +2625,12 @@ class _SendInspector extends StatelessWidget {
     required this.onLoadAnalytics,
     required this.onLoadDeliveryStatus,
   });
-
   final NewsletterSenderSummary? sender;
   final NewsletterSchedule? schedule;
   final NewsletterTestReceipt? testReceipt;
   final NewsletterDeliveryStatus? deliveryStatus;
   final Map<String, num>? analytics;
+  final String? analyticsUnavailableReason;
   final int currentRevision;
   final bool canUnschedule;
   final bool canLoadAnalytics;
@@ -2207,43 +2641,42 @@ class _SendInspector extends StatelessWidget {
   final VoidCallback onUnschedule;
   final VoidCallback onLoadAnalytics;
   final VoidCallback onLoadDeliveryStatus;
-
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Delivery', style: Theme.of(context).textTheme.titleMedium),
+        Text('Envoi', style: Theme.of(context).textTheme.titleMedium),
         SizedBox(height: style.mediumGap),
         _SummaryRow(
-          label: 'From',
-          value: sender?.address ?? 'Not configured',
+          label: 'De',
+          value: sender?.address ?? 'Non configuré',
           style: style,
         ),
         _SummaryRow(
-          label: 'Sender',
-          value: sender?.isVerified == true ? 'Verified' : 'Not verified',
+          label: 'Expéditeur',
+          value: sender?.isVerified == true ? 'Vérifié' : 'Non vérifié',
           style: style,
         ),
         _SummaryRow(
           label: 'Test',
           value: testReceipt == null
-              ? 'Not sent'
+              ? 'Non envoyé'
               : testReceipt!.draftRevision == currentRevision
-                  ? 'Current revision tested'
-                  : 'Test is stale',
+              ? 'Version actuelle testée'
+              : 'Test à renouveler',
           style: style,
         ),
         _SummaryRow(
-          label: 'Schedule',
+          label: 'Programmation',
           value: schedule == null
-              ? 'Not selected'
-              : '${schedule!.sendAt.toLocal()} · ${schedule!.timezoneLabel}',
+              ? 'Non choisie'
+              : '${schedule!.sendAt.toUtc()} (UTC)',
           style: style,
         ),
         _SummaryRow(
-          label: 'Delivery status',
-          value: deliveryStatus?.state.name ?? 'Not loaded',
+          label: 'État de l’envoi',
+          value: deliveryStatus?.state.label ?? 'Non chargé',
           style: style,
         ),
         if (deliveryStatus != null)
@@ -2259,8 +2692,8 @@ class _SendInspector extends StatelessWidget {
               icon: const Icon(Icons.sync_outlined),
               label: Text(
                 deliveryStatus == null
-                    ? 'Load delivery status'
-                    : 'Refresh delivery status',
+                    ? 'Charger l’état de l’envoi'
+                    : 'Actualiser l’état de l’envoi',
               ),
             ),
           ),
@@ -2270,12 +2703,12 @@ class _SendInspector extends StatelessWidget {
             child: TextButton.icon(
               onPressed: isBusy ? null : onUnschedule,
               icon: const Icon(Icons.event_busy_outlined),
-              label: const Text('Remove schedule'),
+              label: const Text('Annuler la programmation'),
             ),
           ),
         if (analytics != null) ...[
           SizedBox(height: style.largeGap),
-          Text('Analytics', style: Theme.of(context).textTheme.titleSmall),
+          Text('Résultats', style: Theme.of(context).textTheme.titleSmall),
           SizedBox(height: style.smallGap),
           for (final entry in analytics!.entries)
             _SummaryRow(
@@ -2290,12 +2723,21 @@ class _SendInspector extends StatelessWidget {
             child: TextButton.icon(
               onPressed: isBusy ? null : onLoadAnalytics,
               icon: const Icon(Icons.query_stats_outlined),
-              label: Text(analytics == null ? 'Load analytics' : 'Refresh analytics'),
+              label: Text(
+                analytics == null
+                    ? 'Charger les résultats'
+                    : 'Actualiser les résultats',
+              ),
             ),
+          ),
+        if (!canLoadAnalytics && analyticsUnavailableReason != null)
+          Text(
+            analyticsUnavailableReason!,
+            style: TextStyle(color: colors.mutedForeground),
           ),
         SizedBox(height: style.largeGap),
         Text(
-          'The Review drawer is the only path to a schedule or send request.',
+          'Vérifiez le récapitulatif avant de confirmer l’envoi.',
           style: TextStyle(color: colors.mutedForeground),
         ),
       ],
@@ -2311,6 +2753,11 @@ class _ReviewPanel extends StatelessWidget {
     required this.schedule,
     required this.testReceipt,
     required this.issues,
+    required this.linkReport,
+    required this.onCheckLinks,
+    required this.linkCheckBusy,
+    required this.linkCheckError,
+    required this.onOpenLinkBlock,
     required this.capabilities,
     required this.style,
     required this.colors,
@@ -2321,27 +2768,28 @@ class _ReviewPanel extends StatelessWidget {
     required this.onSend,
     required this.onClose,
   });
-
   final NewsletterDraft draft;
   final NewsletterAudienceSummary? audience;
   final NewsletterSenderSummary? sender;
   final NewsletterSchedule? schedule;
   final NewsletterTestReceipt? testReceipt;
   final List<NewsletterValidationIssue> issues;
+  final NewsletterLinkCheckReport? linkReport;
+  final Future<void> Function()? onCheckLinks;
+  final bool linkCheckBusy;
+  final String? linkCheckError;
+  final ValueChanged<String> onOpenLinkBlock;
   final NewsletterStudioCapabilities capabilities;
   final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
   final bool isBusy;
   final VoidCallback? onResolveAudience;
   final VoidCallback? onSendTest;
-  final VoidCallback? onSchedule;
-  final VoidCallback? onSend;
+  final Future<void> Function({required bool overrideUncertain})? onSchedule;
+  final Future<void> Function({required bool overrideUncertain})? onSend;
   final VoidCallback onClose;
-
-  bool get hasBlockers => issues.any(
-        (issue) => issue.severity == NewsletterIssueSeverity.blocker,
-      );
-
+  bool get hasBlockers =>
+      issues.any((issue) => issue.severity == NewsletterIssueSeverity.blocker);
   @override
   Widget build(BuildContext context) {
     final blockers = issues
@@ -2350,6 +2798,12 @@ class _ReviewPanel extends StatelessWidget {
     final warnings = issues
         .where((issue) => issue.severity == NewsletterIssueSeverity.warning)
         .toList();
+    final reportCurrent = linkReport?.isCurrentFor(draft) ?? false;
+    final linksReady = onCheckLinks == null || reportCurrent;
+    final linkBlockers = reportCurrent && linkReport!.hasBlockers;
+    final linkUncertain = reportCurrent && linkReport!.requiresOverride;
+    final sendBlocked =
+        hasBlockers || !linksReady || linkBlockers || linkCheckBusy;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2358,10 +2812,13 @@ class _ReviewPanel extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text('Review', style: Theme.of(context).textTheme.titleLarge),
+                child: Text(
+                  'Vérifier',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
               ),
               IconButton(
-                tooltip: 'Close review',
+                tooltip: 'Fermer la vérification',
                 onPressed: onClose,
                 icon: const Icon(Icons.close),
               ),
@@ -2379,26 +2836,41 @@ class _ReviewPanel extends StatelessWidget {
             children: [
               _ReviewSummaryCard(
                 icon: Icons.subject,
-                label: 'Subject',
-                value: draft.subject.isEmpty ? 'Missing' : draft.subject,
+                label: 'Objet',
+                value: draft.subject.isEmpty ? 'Manquant' : draft.subject,
+                colors: colors,
+              ),
+              SizedBox(height: style.largeGap),
+              _LinkReviewCard(
+                report: linkReport,
+                reportCurrent: reportCurrent,
+                checkBusy: linkCheckBusy,
+                checkError: linkCheckError,
+                canCheck: onCheckLinks != null && !isBusy && !linkCheckBusy,
+                onCheck: onCheckLinks,
+                onOpenBlock: onOpenLinkBlock,
+                style: style,
                 colors: colors,
               ),
               _ReviewSummaryCard(
                 icon: Icons.group_outlined,
                 label: 'Audience',
                 value: audience == null
-                    ? 'Unresolved'
-                    : '${audience!.eligibleCount} eligible · ${audience!.excludedCount} excluded',
+                    ? 'Non vérifiée'
+                    : '${audience!.eligibleCount} éligibles · ${audience!.excludedCount} exclus',
                 colors: colors,
                 action: onResolveAudience == null
                     ? null
-                    : TextButton(onPressed: onResolveAudience, child: const Text('Refresh')),
+                    : TextButton(
+                        onPressed: onResolveAudience,
+                        child: const Text('Actualiser'),
+                      ),
               ),
               _ReviewSummaryCard(
                 icon: Icons.alternate_email,
-                label: 'Sender',
+                label: 'Expéditeur',
                 value: sender == null
-                    ? 'Not configured'
+                    ? 'Non configuré'
                     : '${sender!.name} · ${sender!.address}${sender!.isVerified ? '' : ' · unverified'}',
                 colors: colors,
               ),
@@ -2406,25 +2878,34 @@ class _ReviewPanel extends StatelessWidget {
                 icon: Icons.mark_email_read_outlined,
                 label: 'Test',
                 value: testReceipt == null
-                    ? 'Not sent'
+                    ? 'Non envoyé'
                     : testReceipt!.draftRevision == draft.revision
-                        ? 'Current revision tested'
-                        : 'Stale after draft changes',
+                    ? 'Version actuelle testée'
+                    : 'Test antérieur aux modifications',
                 colors: colors,
                 action: onSendTest == null
                     ? null
-                    : TextButton(onPressed: onSendTest, child: const Text('Send test')),
+                    : TextButton(
+                        onPressed: onSendTest,
+                        child: const Text('Envoyer un test'),
+                      ),
               ),
               if (blockers.isNotEmpty) ...[
                 SizedBox(height: style.largeGap),
-                Text('Blocking issues', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'Points à corriger',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 SizedBox(height: style.smallGap),
                 for (final issue in blockers)
                   _IssueTile(issue: issue, colors: colors),
               ],
               if (warnings.isNotEmpty) ...[
                 SizedBox(height: style.largeGap),
-                Text('Warnings', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'À vérifier',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 SizedBox(height: style.smallGap),
                 for (final issue in warnings)
                   _IssueTile(issue: issue, colors: colors),
@@ -2446,37 +2927,89 @@ class _ReviewPanel extends StatelessWidget {
                 Padding(
                   padding: EdgeInsets.only(bottom: style.smallGap),
                   child: Text(
-                    'Resolve every blocking issue before delivery.',
+                    'Corrigez les points bloquants avant l’envoi.',
                     style: TextStyle(color: colors.danger),
+                  ),
+                ),
+              if (linkBlockers)
+                Padding(
+                  padding: EdgeInsets.only(bottom: style.smallGap),
+                  child: Text(
+                    'Corrigez les liens bloquants et relancez la vérification.',
+                    style: TextStyle(color: colors.danger),
+                  ),
+                ),
+              if (onCheckLinks != null && !linksReady)
+                Padding(
+                  padding: EdgeInsets.only(bottom: style.smallGap),
+                  child: Text(
+                    'Une vérification actuelle et complète des liens est requise.',
+                    style: TextStyle(color: colors.warning),
                   ),
                 ),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: !hasBlockers &&
+                      onPressed:
+                          !sendBlocked &&
+                              !linkUncertain &&
                               !isBusy &&
                               capabilities.canSchedule
-                          ? onSchedule
+                          ? () => onSchedule?.call(overrideUncertain: false)
                           : null,
-                      child: Text(schedule == null ? 'Choose schedule' : 'Confirm schedule'),
-                    ),
-                  ),
-                  SizedBox(width: style.smallGap),
-                  Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: colors.primaryActionSurface,
-                        foregroundColor: colors.primaryActionForeground,
+                      child: Text(
+                        schedule == null
+                            ? 'Choisir une date'
+                            : 'Confirmer la programmation',
                       ),
-                      onPressed: !hasBlockers && !isBusy && capabilities.canSend
-                          ? onSend
-                          : null,
-                      child: const Text('Send now'),
                     ),
                   ),
                 ],
               ),
+              SizedBox(height: style.smallGap),
+              if (!sendBlocked &&
+                  !linkUncertain &&
+                  !isBusy &&
+                  capabilities.canSend &&
+                  onSend != null)
+                _SlideToSend(
+                  label: 'Glisser pour envoyer maintenant',
+                  accessibleActionLabel:
+                      'Envoyer maintenant au clavier ou avec un lecteur d’écran',
+                  colors: colors,
+                  onComplete: () => onSend!(overrideUncertain: false),
+                )
+              else
+                FilledButton(
+                  onPressed: null,
+                  child: const Text('Envoyer maintenant'),
+                ),
+              if (linkUncertain && !linkBlockers && linksReady) ...[
+                SizedBox(height: style.smallGap),
+                Text(
+                  'Des destinations n’ont pas pu être confirmées. La dérogation sera enregistrée côté serveur.',
+                  style: TextStyle(color: colors.warning),
+                ),
+                SizedBox(height: style.smallGap),
+                if (capabilities.canSchedule && onSchedule != null)
+                  OutlinedButton(
+                    onPressed: !isBusy
+                        ? () => onSchedule!.call(overrideUncertain: true)
+                        : null,
+                    child: const Text('Déroger et programmer'),
+                  ),
+                if (capabilities.canSend && onSend != null)
+                  _SlideToSend(
+                    label: 'Glisser pour déroger et envoyer',
+                    accessibleActionLabel:
+                        'Déroger et envoyer au clavier ou avec un lecteur d’écran',
+                    colors: colors,
+                    warning: true,
+                    enabled: !isBusy,
+                    onComplete: () => onSend!(overrideUncertain: true),
+                  ),
+              ],
             ],
           ),
         ),
@@ -2489,6 +3022,110 @@ class _ReviewPanel extends StatelessWidget {
   }
 }
 
+class _SlideToSend extends StatefulWidget {
+  const _SlideToSend({
+    required this.label,
+    required this.accessibleActionLabel,
+    required this.colors,
+    required this.onComplete,
+    this.warning = false,
+    this.enabled = true,
+  });
+
+  final String label;
+  final String accessibleActionLabel;
+  final NewsletterStudioColors colors;
+  final Future<void> Function() onComplete;
+  final bool warning;
+  final bool enabled;
+
+  @override
+  State<_SlideToSend> createState() => _SlideToSendState();
+}
+
+class _SlideToSendState extends State<_SlideToSend> {
+  double _value = 0;
+  bool _locked = false;
+
+  Future<void> _activate() async {
+    if (!widget.enabled || _locked) return;
+    setState(() => _locked = true);
+    try {
+      await widget.onComplete();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _locked = false;
+          _value = 0;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final actionColor = widget.warning
+        ? widget.colors.warning
+        : widget.colors.primaryActionSurface;
+    final foreground = widget.warning
+        ? widget.colors.foreground
+        : widget.colors.primaryActionForeground;
+    final enabled = widget.enabled && !_locked;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          container: true,
+          label: widget.label,
+          value: _value >= 0.98
+              ? 'Prêt à confirmer'
+              : 'Glissement ${(_value * 100).round()} pour cent',
+          hint:
+              'Faites glisser le curseur jusqu’au bout pour ouvrir la confirmation.',
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: actionColor,
+              inactiveTrackColor: widget.colors.divider,
+              thumbColor: actionColor,
+              overlayColor: actionColor.withValues(alpha: 0.12),
+              trackHeight: 8,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 16),
+            ),
+            child: Slider(
+              value: _value,
+              min: 0,
+              max: 1,
+              divisions: 24,
+              semanticFormatterCallback: (value) =>
+                  '${widget.label} : ${(value * 100).round()} pour cent',
+              onChanged: enabled
+                  ? (value) => setState(() => _value = value)
+                  : null,
+              onChangeEnd: enabled
+                  ? (value) {
+                      if (value >= 0.98) {
+                        _activate();
+                      } else {
+                        setState(() => _value = 0);
+                      }
+                    }
+                  : null,
+            ),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: enabled ? _activate : null,
+          icon: Icon(
+            widget.warning ? Icons.warning_amber_outlined : Icons.send,
+          ),
+          label: Text(widget.accessibleActionLabel),
+          style: TextButton.styleFrom(foregroundColor: foreground),
+        ),
+      ],
+    );
+  }
+}
+
 class _ReviewSummaryCard extends StatelessWidget {
   const _ReviewSummaryCard({
     required this.icon,
@@ -2497,13 +3134,11 @@ class _ReviewSummaryCard extends StatelessWidget {
     required this.colors,
     this.action,
   });
-
   final IconData icon;
   final String label;
   final String value;
   final NewsletterStudioColors colors;
   final Widget? action;
-
   @override
   Widget build(BuildContext context) {
     return ListTile(
@@ -2516,12 +3151,257 @@ class _ReviewSummaryCard extends StatelessWidget {
   }
 }
 
-class _IssueTile extends StatelessWidget {
-  const _IssueTile({required this.issue, required this.colors});
+class _LinkReviewCard extends StatelessWidget {
+  const _LinkReviewCard({
+    required this.report,
+    required this.reportCurrent,
+    required this.checkBusy,
+    required this.checkError,
+    required this.canCheck,
+    required this.onCheck,
+    required this.onOpenBlock,
+    required this.style,
+    required this.colors,
+  });
 
-  final NewsletterValidationIssue issue;
+  final NewsletterLinkCheckReport? report;
+  final bool reportCurrent;
+  final bool checkBusy;
+  final String? checkError;
+  final bool canCheck;
+  final Future<void> Function()? onCheck;
+  final ValueChanged<String> onOpenBlock;
+  final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
 
+  @override
+  Widget build(BuildContext context) {
+    final status = reportCurrent ? report!.status : null;
+    final color = switch (status) {
+      NewsletterLinkReportStatus.clear => colors.success,
+      NewsletterLinkReportStatus.blocked => colors.danger,
+      NewsletterLinkReportStatus.uncertain => colors.warning,
+      null => colors.mutedForeground,
+    };
+    final title = checkBusy
+        ? 'Vérification des liens…'
+        : !reportCurrent
+        ? 'Liens non vérifiés pour cette version'
+        : status == NewsletterLinkReportStatus.clear
+        ? report!.findings.isEmpty
+              ? 'Aucun lien à vérifier'
+              : '${report!.validCount} lien(s) valides'
+        : status == NewsletterLinkReportStatus.blocked
+        ? '${report!.blockingCount} lien(s) à corriger'
+        : '${report!.uncertainCount} lien(s) non vérifiés';
+    final disclosure = report?.disclosure;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.subtleSurface,
+        borderRadius: BorderRadius.circular(style.panelRadius),
+        border: Border.all(color: colors.divider),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(style.panelRadius),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: style.panelPadding,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    status == NewsletterLinkReportStatus.clear
+                        ? Icons.link
+                        : status == NewsletterLinkReportStatus.blocked
+                        ? Icons.link_off
+                        : Icons.link_outlined,
+                    color: color,
+                  ),
+                  SizedBox(width: style.smallGap),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Liens',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        SizedBox(height: style.smallGap / 2),
+                        Text(title, style: TextStyle(color: color)),
+                        if (reportCurrent && report!.findings.isNotEmpty)
+                          Text(
+                            '${report!.validCount} valides · ${report!.blockingCount} bloquants · ${report!.uncertainCount} incertains',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        if (disclosure?.externalRequests == true &&
+                            reportCurrent)
+                          Padding(
+                            padding: EdgeInsets.only(top: style.smallGap / 2),
+                            child: Text(
+                              'Requêtes externes effectuées. Un GET de secours limité peut avoir un effet sur la destination.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: canCheck ? onCheck : null,
+                    icon: checkBusy
+                        ? SizedBox(
+                            width: style.compactIconSize,
+                            height: style.compactIconSize,
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(reportCurrent ? 'Revérifier' : 'Vérifier'),
+                  ),
+                ],
+              ),
+            ),
+            if (checkError != null)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  style.panelPadding.horizontal / 2,
+                  0,
+                  style.panelPadding.horizontal / 2,
+                  style.smallGap,
+                ),
+                child: Text(
+                  checkError!,
+                  style: TextStyle(color: colors.danger),
+                ),
+              ),
+            if (reportCurrent && report!.findings.isNotEmpty)
+              Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.symmetric(
+                    horizontal: style.panelPadding.horizontal / 2,
+                  ),
+                  childrenPadding: EdgeInsets.fromLTRB(
+                    style.panelPadding.horizontal / 2,
+                    0,
+                    style.panelPadding.horizontal / 2,
+                    style.smallGap,
+                  ),
+                  title: Text(
+                    '${report!.findings.length} destinations contrôlées',
+                  ),
+                  children: [
+                    for (final finding in report!.findings)
+                      _LinkFindingTile(
+                        finding: finding,
+                        colors: colors,
+                        style: style,
+                        onOpenBlock: onOpenBlock,
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LinkFindingTile extends StatelessWidget {
+  const _LinkFindingTile({
+    required this.finding,
+    required this.colors,
+    required this.style,
+    required this.onOpenBlock,
+  });
+
+  final NewsletterLinkFinding finding;
+  final NewsletterStudioColors colors;
+  final NewsletterStudioStyle style;
+  final ValueChanged<String> onOpenBlock;
+
+  @override
+  Widget build(BuildContext context) {
+    final blocker =
+        finding.status == NewsletterLinkFindingStatus.broken ||
+        finding.status == NewsletterLinkFindingStatus.staticBlocker;
+    final uncertain = finding.status == NewsletterLinkFindingStatus.uncertain;
+    final color = blocker
+        ? colors.danger
+        : uncertain
+        ? colors.warning
+        : colors.success;
+    final reason = switch (finding.reason) {
+      'missing_url' => 'URL manquante',
+      'invalid_url' => 'URL invalide',
+      'https_443_required' => 'HTTPS sur le port 443 requis',
+      'credentials_not_allowed' => 'Identifiants interdits dans l’URL',
+      'placeholder_url' => 'Destination provisoire',
+      'anchor_link' =>
+        'Lien d’ancre non pris en charge par la plupart des clients email',
+      'timeout' ||
+      'dns_timeout' ||
+      'check_deadline' => 'Délai de vérification dépassé',
+      'non_public_address' => 'Destination non publique refusée',
+      'too_many_redirects' => 'Trop de redirections',
+      _ when finding.httpStatus != null => 'Réponse HTTP ${finding.httpStatus}',
+      _ => finding.reason ?? 'Résultat non vérifié',
+    };
+    final destination = finding.host.isEmpty
+        ? 'Destination absente'
+        : finding.host;
+    return Padding(
+      padding: EdgeInsets.only(bottom: style.smallGap),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              blocker
+                  ? Icons.error_outline
+                  : uncertain
+                  ? Icons.warning_amber_outlined
+                  : Icons.check_circle_outline,
+              color: color,
+            ),
+            title: Text(
+              destination,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(reason),
+            trailing: Text('${finding.blockIds.length} bloc(s)'),
+          ),
+          Wrap(
+            spacing: style.smallGap,
+            children: [
+              for (final blockId in finding.blockIds)
+                TextButton.icon(
+                  onPressed: () => onOpenBlock(blockId),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: Text('Corriger le lien · $blockId'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IssueTile extends StatelessWidget {
+  const _IssueTile({required this.issue, required this.colors});
+  final NewsletterValidationIssue issue;
+  final NewsletterStudioColors colors;
   @override
   Widget build(BuildContext context) {
     final blocker = issue.severity == NewsletterIssueSeverity.blocker;
@@ -2543,17 +3423,13 @@ class _SummaryRow extends StatelessWidget {
     required this.value,
     required this.style,
   });
-
   final String label;
   final String value;
   final NewsletterStudioStyle style;
-
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: style.summaryRowVerticalPadding,
-      ),
+      padding: EdgeInsets.symmetric(vertical: style.summaryRowVerticalPadding),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2580,13 +3456,11 @@ class _RailButton extends StatelessWidget {
     required this.colors,
     required this.onPressed,
   });
-
   final String tooltip;
   final IconData icon;
   final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
   final VoidCallback onPressed;
-
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
@@ -2616,12 +3490,10 @@ class _ErrorBanner extends StatelessWidget {
     required this.colors,
     required this.onDismiss,
   });
-
   final String message;
   final NewsletterStudioStyle style;
   final NewsletterStudioColors colors;
   final VoidCallback onDismiss;
-
   @override
   Widget build(BuildContext context) {
     return MaterialBanner(
@@ -2630,9 +3502,7 @@ class _ErrorBanner extends StatelessWidget {
       ),
       leading: Icon(Icons.error_outline, color: colors.danger),
       content: Text(message),
-      actions: [
-        TextButton(onPressed: onDismiss, child: const Text('Dismiss')),
-      ],
+      actions: [TextButton(onPressed: onDismiss, child: const Text('Fermer'))],
     );
   }
 }
@@ -2644,12 +3514,10 @@ class _EmptyPanel extends StatelessWidget {
     required this.message,
     required this.style,
   });
-
   final IconData icon;
   final String title;
   final String message;
   final NewsletterStudioStyle style;
-
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -2724,13 +3592,10 @@ class _HelpIntent extends Intent {
 
 class _GuardedAction<T extends Intent> extends Action<T> {
   _GuardedAction({required this.canInvoke, required this.onInvoke});
-
   final bool Function() canInvoke;
   final Object? Function(T intent) onInvoke;
-
   @override
   bool isEnabled(T intent) => canInvoke();
-
   @override
   Object? invoke(T intent) => onInvoke(intent);
 }

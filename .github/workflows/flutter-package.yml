@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - "packages/source_sidebar_flutter/**"
+      - "packages/newsletter_studio_flutter/**"
+      - "packages/shipglows_flutter_zoom/**"
+      - "app/**"
       - "demo/**"
       - "scripts/vercel-build.sh"
       - "vercel.json"
@@ -11,6 +14,9 @@ on:
   pull_request:
     paths:
       - "packages/source_sidebar_flutter/**"
+      - "packages/newsletter_studio_flutter/**"
+      - "packages/shipglows_flutter_zoom/**"
+      - "app/**"
       - "demo/**"
       - "scripts/vercel-build.sh"
       - "vercel.json"
@@ -20,6 +26,33 @@ permissions:
   contents: read
 
 jobs:
+  newsletters:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: [packages/newsletter_studio_flutter, app]
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.7
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - if: matrix.directory == 'app'
+        run: flutter build web --release --base-href /email-engine/
+      - if: matrix.directory == 'app'
+        uses: actions/upload-artifact@v4
+        with:
+          name: email-engine-web
+          path: app/build/web
+          if-no-files-found: error
   test:
     runs-on: ubuntu-latest
     defaults:

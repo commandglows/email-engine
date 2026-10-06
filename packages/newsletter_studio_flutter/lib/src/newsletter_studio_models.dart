@@ -4,7 +4,15 @@ enum NewsletterBlockType { heading, text, button, divider, source }
 
 enum NewsletterDraftStatus { draft, review, scheduled, sent }
 
-enum NewsletterSaveState { clean, dirty, saving, saved, conflict, offline, failed }
+enum NewsletterSaveState {
+  clean,
+  dirty,
+  saving,
+  saved,
+  conflict,
+  offline,
+  failed,
+}
 
 enum NewsletterIssueSeverity { blocker, warning }
 
@@ -24,8 +32,13 @@ enum NewsletterOperationKind {
 }
 
 enum NewsletterDeliveryState {
+  completed,
+  queued,
+  submitted,
+  unknown,
   draft,
   scheduled,
+  paused,
   sending,
   delivered,
   partiallyDelivered,
@@ -58,6 +71,7 @@ class NewsletterBlock {
     this.text = '',
     this.label,
     this.url,
+    this.rawUrl,
     this.sourceId,
     this.isProtected = false,
   });
@@ -67,6 +81,9 @@ class NewsletterBlock {
   final String text;
   final String? label;
   final Uri? url;
+
+  /// Preserves the authored input when it is empty or cannot be parsed.
+  final String? rawUrl;
   final String? sourceId;
   final bool isProtected;
 
@@ -75,6 +92,7 @@ class NewsletterBlock {
     String? text,
     String? label,
     Uri? url,
+    String? rawUrl,
     String? sourceId,
     bool? isProtected,
   }) {
@@ -84,6 +102,7 @@ class NewsletterBlock {
       text: text ?? this.text,
       label: label ?? this.label,
       url: url ?? this.url,
+      rawUrl: rawUrl ?? this.rawUrl,
       sourceId: sourceId ?? this.sourceId,
       isProtected: isProtected ?? this.isProtected,
     );
@@ -114,10 +133,8 @@ class NewsletterDraft {
   final NewsletterDraftStatus status;
   final NewsletterSaveState saveState;
 
-  Set<String> get usedSourceIds => blocks
-      .map((block) => block.sourceId)
-      .whereType<String>()
-      .toSet();
+  Set<String> get usedSourceIds =>
+      blocks.map((block) => block.sourceId).whereType<String>().toSet();
 
   NewsletterDraft copyWith({
     int? revision,
@@ -211,6 +228,107 @@ class NewsletterValidationIssue {
   final String? target;
 }
 
+enum NewsletterLinkReportStatus { clear, blocked, uncertain }
+
+enum NewsletterLinkFindingStatus { valid, broken, uncertain, staticBlocker }
+
+@immutable
+class NewsletterLinkFinding {
+  const NewsletterLinkFinding({
+    required this.blockIds,
+    required this.host,
+    required this.status,
+    this.destinationHash,
+    this.httpStatus,
+    this.reason,
+    this.method,
+    this.redirects = 0,
+  });
+
+  final List<String> blockIds;
+  final String host;
+  final String? destinationHash;
+  final NewsletterLinkFindingStatus status;
+  final int? httpStatus;
+  final String? reason;
+  final String? method;
+  final int redirects;
+}
+
+@immutable
+class NewsletterLinkCheckDisclosure {
+  const NewsletterLinkCheckDisclosure({
+    required this.externalRequests,
+    required this.possibleDestinationSideEffect,
+    required this.methodPolicy,
+  });
+
+  final bool externalRequests;
+  final bool possibleDestinationSideEffect;
+  final String methodPolicy;
+}
+
+@immutable
+class NewsletterLinkCheckReport {
+  const NewsletterLinkCheckReport({
+    required this.id,
+    required this.campaignId,
+    required this.revision,
+    required this.serverRevision,
+    required this.destinationDigest,
+    required this.checkedAt,
+    required this.expiresAt,
+    required this.status,
+    required this.blockingCount,
+    required this.uncertainCount,
+    required this.validCount,
+    required this.findings,
+    required this.disclosure,
+  });
+
+  final String id;
+  final String campaignId;
+  final int revision;
+  final int serverRevision;
+  final String destinationDigest;
+  final DateTime checkedAt;
+  final DateTime expiresAt;
+  final NewsletterLinkReportStatus status;
+  final int blockingCount;
+  final int uncertainCount;
+  final int validCount;
+  final List<NewsletterLinkFinding> findings;
+  final NewsletterLinkCheckDisclosure disclosure;
+
+  bool isCurrentFor(NewsletterDraft draft, {DateTime? now}) {
+    final instant = now ?? DateTime.now();
+    final countsValid =
+        blockingCount >= 0 &&
+        uncertainCount >= 0 &&
+        validCount >= 0 &&
+        findings.length == blockingCount + uncertainCount + validCount &&
+        switch (status) {
+          NewsletterLinkReportStatus.clear =>
+            blockingCount == 0 && uncertainCount == 0,
+          NewsletterLinkReportStatus.blocked => blockingCount > 0,
+          NewsletterLinkReportStatus.uncertain =>
+            blockingCount == 0 && uncertainCount > 0,
+        };
+    return id.isNotEmpty &&
+        campaignId == draft.id &&
+        revision == draft.revision &&
+        destinationDigest.isNotEmpty &&
+        checkedAt.isBefore(instant.add(const Duration(minutes: 1))) &&
+        expiresAt.isAfter(instant) &&
+        countsValid;
+  }
+
+  bool get hasBlockers =>
+      blockingCount > 0 || status == NewsletterLinkReportStatus.blocked;
+  bool get requiresOverride =>
+      status == NewsletterLinkReportStatus.uncertain || uncertainCount > 0;
+}
+
 @immutable
 class NewsletterPreview {
   const NewsletterPreview({
@@ -232,10 +350,7 @@ class NewsletterPreview {
 
 @immutable
 class NewsletterSchedule {
-  const NewsletterSchedule({
-    required this.sendAt,
-    required this.timezoneLabel,
-  });
+  const NewsletterSchedule({required this.sendAt, required this.timezoneLabel});
 
   final DateTime sendAt;
   final String timezoneLabel;
@@ -294,6 +409,7 @@ class NewsletterStudioCapabilities {
     this.canUnschedule = false,
     this.canViewDeliveryStatus = false,
     this.canViewAnalytics = false,
+    this.analyticsUnavailableReason,
   });
 
   final bool canEdit;
@@ -304,4 +420,32 @@ class NewsletterStudioCapabilities {
   final bool canUnschedule;
   final bool canViewDeliveryStatus;
   final bool canViewAnalytics;
+  final String? analyticsUnavailableReason;
+}
+
+extension NewsletterBlockTypeLabel on NewsletterBlockType {
+  String get label => switch (this) {
+    NewsletterBlockType.heading => 'Titre',
+    NewsletterBlockType.text => 'Texte',
+    NewsletterBlockType.button => 'Bouton',
+    NewsletterBlockType.divider => 'Séparateur',
+    NewsletterBlockType.source => 'Source',
+  };
+}
+
+extension NewsletterDeliveryStateLabel on NewsletterDeliveryState {
+  String get label => switch (this) {
+    NewsletterDeliveryState.completed => 'Terminée',
+    NewsletterDeliveryState.draft => 'Brouillon',
+    NewsletterDeliveryState.queued => 'En attente',
+    NewsletterDeliveryState.submitted => 'Transmis au prestataire',
+    NewsletterDeliveryState.unknown => 'Résultat incertain',
+    NewsletterDeliveryState.scheduled => 'Programmé',
+    NewsletterDeliveryState.paused => 'Suspendue',
+    NewsletterDeliveryState.sending => 'Envoi en cours',
+    NewsletterDeliveryState.delivered => 'Livré',
+    NewsletterDeliveryState.partiallyDelivered => 'Livraison partielle',
+    NewsletterDeliveryState.failed => 'Échec',
+    NewsletterDeliveryState.cancelled => 'Annulé',
+  };
 }

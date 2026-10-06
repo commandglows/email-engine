@@ -13,6 +13,7 @@
 **/.flutter-plugins-dependencies
 **/build/
 demo/pubspec.lock
+packages/newsletter_studio_flutter/pubspec.lock
 
 # debug
 npm-debug.log*

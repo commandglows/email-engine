@@ -1,10 +1,31 @@
-# Sources and Newsletter Studio for Flutter
+# ShipGlows Email Engine
+
+The default interface is one shared email list and reader: **Sources** (Readwise Reader),
+**Service client** (owned Gmail accounts with Mutant Mail relay routing), and
+**Diffusion** (Postmark campaigns). The three groups appear in this order in one
+scrolling list. A single sidebar jumps to each group; contextual reader actions
+handle support replies and campaign editing. There is no separate overview.
+The demo at `/` uses fictional data.
+The authenticated `app` has server-backed adapters with explicit configuration
+states. No provider connection or successful delivery is implied by the preview.
 
 This public repository owns two native, provider-neutral Flutter presentation
-packages consumed by CommandGlows applications: `source_sidebar_flutter` for
+packages for host applications: `source_sidebar_flutter` for
 collecting and reading sources, and `newsletter_studio_flutter` for turning
 selected sources into a reviewable newsletter draft. Neither package is a
 WebView wrapper.
+
+The newsletter package now includes a campaign workspace, version-aware editing,
+audience selection, review, scheduling and delivery status. `app/` is the real
+operator web application: it calls the same-origin, Clerk-protected CommandGlows
+campaign API. The central backend retains ownership of audiences, consent,
+suppression, frozen approval snapshots and Postmark delivery. See
+[`app/README.md`](app/README.md) for the deployment boundary.
+
+Select **Diffusion**, open a campaign in the shared reader, then open its editor.
+The preview's sample campaigns and sending hooks remain explicitly
+synthetic. Neither this preview nor passing tests proves hosted login or real
+email receipt. Production activation and real recipient tests are separate.
 
 The Flutter Web demo consumes both real packages with synthetic data and typed
 simulated hooks. It contains no Readwise or delivery-provider token, performs
@@ -34,6 +55,9 @@ as inbox-rendering or deliverability proof.
 - `packages/newsletter_studio_flutter`: reusable newsletter composition and
   review package with provider-neutral host hooks.
 - `demo`: unified Flutter Web preview consuming both packages by local path.
+- `app`: same-origin authenticated newsletter operator; no provider credentials.
+- `scripts/install-operator-web.ps1`: install an already-built operator artifact
+  into a validated local CommandGlows site checkout without deploying it.
 - `scripts/vercel-build.sh`: reproducible Vercel build with Flutter 3.41.7.
 - `shipglows_data/visual-proof`: inspected desktop and mobile reference
   captures for the current Flutter implementation.
@@ -43,7 +67,7 @@ as inbox-rendering or deliverability proof.
 ```bash
 cd demo
 flutter pub get
-flutter run -d chrome
+s start -ProjectPath <absolute-path-to-demo> -FlutterDevice web-server
 ```
 
 ## Validate
@@ -61,6 +85,12 @@ cd ../../demo
 flutter analyze
 flutter test
 flutter build web --release
+
+cd ../app
+flutter pub get
+flutter analyze
+flutter test
+flutter build web --release --base-href /email-engine/
 ```
 
 Licensed under the MIT License.

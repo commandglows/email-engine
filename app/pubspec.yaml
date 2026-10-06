@@ -1,0 +1,24 @@
+name: shipglows_email_engine_app
+description: Authenticated web operator for the CommandGlows central email service.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: ^3.11.0
+  flutter: ">=3.41.0"
+dependencies:
+  cupertino_icons: ^1.0.9
+  crypto: ^3.0.7
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  url_launcher: ^6.3.2
+  source_sidebar_flutter:
+    path: ../packages/source_sidebar_flutter
+  newsletter_studio_flutter:
+    path: ../packages/newsletter_studio_flutter
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true
