@@ -2,30 +2,27 @@ name: Flutter package
 
 on:
   push:
-    paths:
-      - "packages/source_sidebar_flutter/**"
-      - "packages/newsletter_studio_flutter/**"
-      - "packages/shipglows_flutter_zoom/**"
-      - "app/**"
-      - "demo/**"
-      - "scripts/vercel-build.sh"
-      - "vercel.json"
-      - ".github/workflows/flutter-package.yml"
+    branches: [main]
   pull_request:
-    paths:
-      - "packages/source_sidebar_flutter/**"
-      - "packages/newsletter_studio_flutter/**"
-      - "packages/shipglows_flutter_zoom/**"
-      - "app/**"
-      - "demo/**"
-      - "scripts/vercel-build.sh"
-      - "vercel.json"
-      - ".github/workflows/flutter-package.yml"
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  required-gate:
+    name: ShipGlows required gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs: [newsletters, test, preview]
+    steps:
+      - name: Require successful validation lanes
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: python -c "import os; assert all(result == 'success' for result in os.environ['RESULTS'].split(',')), os.environ['RESULTS']"
+
   newsletters:
     runs-on: ubuntu-latest
     strategy:
