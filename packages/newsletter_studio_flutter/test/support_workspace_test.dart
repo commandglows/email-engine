@@ -9,6 +9,7 @@ class FakeSupportRepository implements SupportRepository {
   int sends = 0;
   String? sentBody;
   SupportStatus status = SupportStatus.pending;
+  bool isUnread = true, isArchived = false;
   @override
   Future<SupportContext> context() async => SupportContext(
     configured: configured,
@@ -18,12 +19,22 @@ class FakeSupportRepository implements SupportRepository {
         id: 'own',
         email: 'moi@example.test',
         connected: connected,
+        canModify: true,
       ),
     ],
   );
   @override
   Future<Uri> connect(String mailboxId) async =>
       Uri.parse('https://accounts.google.com/o/oauth2/v2/auth');
+  @override
+  Future<Uri> addMailbox({String? returnOrigin}) async =>
+      Uri.parse('https://accounts.google.com/o/oauth2/v2/auth');
+  @override
+  Future<void> trashThread(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+  }) async {}
   @override
   Future<SupportPage> threads(String mailboxId, {String? cursor}) async =>
       SupportPage(
@@ -34,6 +45,8 @@ class FakeSupportRepository implements SupportRepository {
             from: 'Camille',
             snippet: 'Mon accès',
             status: status,
+            isUnread: isUnread,
+            isArchived: isArchived,
           ),
         ],
       );
@@ -45,6 +58,8 @@ class FakeSupportRepository implements SupportRepository {
         status: status,
         latestMessageId: 'm1',
         canReply: true,
+        isUnread: isUnread,
+        isArchived: isArchived,
         replyTo: 'relay@exemple.test',
         messages: const [
           SupportMessage(
@@ -63,6 +78,41 @@ class FakeSupportRepository implements SupportRepository {
   ) async {
     status = value;
   }
+
+  @override
+  Future<SupportThread> setGmailMetadata(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+    required bool isUnread,
+    required bool isArchived,
+  }) async {
+    this.isUnread = isUnread;
+    this.isArchived = isArchived;
+    return thread(mailboxId, threadId);
+  }
+
+  @override
+  Future<SupportObservability> observability(
+    String mailboxId,
+    String window,
+  ) async => const SupportObservability(
+    coverage: 'partial',
+    source: 'operator_mailbox_paging',
+    window: '24h',
+    observedCount: 0,
+    sampledCount: 0,
+    sampleLimit: 50,
+    sampleTruncated: false,
+    countsByState: {},
+    stateCountsAvailable: true,
+    lastObservedAt: null,
+    oldestSampleAt: null,
+    sample: [],
+    sampleAvailable: true,
+    failures: [],
+    failuresAvailable: true,
+  );
 
   @override
   Future<SupportReplyResult> reply(
@@ -90,7 +140,16 @@ Future<void> openThread(WidgetTester tester, FakeSupportRepository repo) async {
 }
 
 Future<void> compose(WidgetTester tester) async {
-  await tester.ensureVisible(find.widgetWithText(TextField, 'Votre réponse'));
+  await tester.scrollUntilVisible(
+    find.widgetWithText(TextField, 'Votre réponse'),
+    240,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const ValueKey('support-detail-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
   await tester.enterText(
     find.widgetWithText(TextField, 'Votre réponse'),
     'Bonjour Camille, voici votre accès.',
@@ -145,7 +204,10 @@ void main() {
             textScaler: TextScaler.linear(2),
           ),
           child: Scaffold(
-            body: SupportWorkspace(repository: FakeSupportRepository()),
+            body: SupportWorkspace(
+              repository: FakeSupportRepository(),
+              userMailboxMode: true,
+            ),
           ),
         ),
       ),
@@ -222,7 +284,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final repo = FakeSupportRepository();
     await openThread(tester, repo);
-    await tester.ensureVisible(find.widgetWithText(TextField, 'Votre réponse'));
+    await tester.scrollUntilVisible(
+      find.widgetWithText(TextField, 'Votre réponse'),
+      240,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('support-detail-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.enterText(
       find.widgetWithText(TextField, 'Votre réponse'),
       'Brouillon mobile',
@@ -236,7 +307,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Besoin d’aide'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.widgetWithText(TextField, 'Votre réponse'));
+    await tester.scrollUntilVisible(
+      find.widgetWithText(TextField, 'Votre réponse'),
+      240,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('support-detail-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     expect(find.text('Brouillon mobile'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
