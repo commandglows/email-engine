@@ -25,6 +25,17 @@ class DemoSupportRepository implements SupportRepository {
     'Cette démonstration ne connecte aucune boîte Gmail.',
   );
   @override
+  Future<Uri> addMailbox({String? returnOrigin}) async =>
+      throw const SupportException('Demo mailboxes are read-only.');
+
+  @override
+  Future<void> trashThread(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+  }) async => throw const SupportException('Demo mailboxes are read-only.');
+
+  @override
   Future<SupportPage> threads(String mailboxId, {String? cursor}) async =>
       SupportPage(
         items: List.generate(
@@ -68,6 +79,37 @@ class DemoSupportRepository implements SupportRepository {
       ],
     );
   }
+
+  @override
+  Future<SupportThread> setGmailMetadata(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+    required bool isUnread,
+    required bool isArchived,
+  }) async => throw const SupportException('Demo mailboxes are read-only.');
+
+  @override
+  Future<SupportObservability> observability(
+    String mailboxId,
+    String window,
+  ) async => SupportObservability(
+    coverage: 'none',
+    source: 'demo',
+    window: window,
+    observedCount: null,
+    sampledCount: 0,
+    sampleLimit: 0,
+    sampleTruncated: false,
+    countsByState: const {},
+    stateCountsAvailable: false,
+    lastObservedAt: null,
+    oldestSampleAt: null,
+    sample: const [],
+    sampleAvailable: false,
+    failures: const [],
+    failuresAvailable: false,
+  );
 
   @override
   Future<void> setStatus(

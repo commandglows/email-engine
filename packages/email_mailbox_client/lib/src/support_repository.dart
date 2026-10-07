@@ -1,5 +1,27 @@
 import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
+
 import 'central_email_api.dart';
+
+import 'dart:convert';
+import 'dart:typed_data';
+
+/// Provider filenames are display data, never filesystem paths.
+String safeDownloadName(String name) {
+  var safe = name
+      .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_')
+      .replaceAll(RegExp(r'[. ]+$'), '')
+      .trim();
+  if (safe.isEmpty || safe == '.' || safe == '..') {
+    safe = 'piece-jointe';
+  }
+  if (RegExp(
+    r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)',
+    caseSensitive: false,
+  ).hasMatch(safe)) {
+    safe = 'piece-jointe_$safe';
+  }
+  return safe.length > 200 ? safe.substring(0, 200) : safe;
+}
 
 class CentralSupportRepository implements SupportRepository {
   CentralSupportRepository(this.api);
@@ -16,6 +38,7 @@ class CentralSupportRepository implements SupportRepository {
           sending &&
           !const {
             'auth_required',
+            'authentication_required',
             'forbidden',
             'admin_required',
             'mailbox_not_connected',
@@ -35,42 +58,67 @@ class CentralSupportRepository implements SupportRepository {
             'mailbox_not_allowed',
             'consent_incomplete',
             'thread_too_large',
+            'invalid_request',
+            'invalid_attachments',
+            'attachments_too_large',
+            'reply_all_unverified_recipients',
+            'modify_scope_required',
+            'metadata_update_failed',
           }.contains(error.code);
-      throw SupportException(switch (error.code) {
-        'auth_required' =>
-          'Votre session a expiré. Reconnectez-vous à CommandGlows.',
-        'forbidden' ||
-        'admin_required' ||
-        'mailbox_not_allowed' => 'Votre compte n’a pas accès à cette boîte.',
-        'mailbox_not_connected' ||
-        'gmail_reconnect_required' ||
-        'reconnect_required' =>
-          'Reconnectez cette boîte Gmail, puis actualisez les conversations.',
-        'configuration_unavailable' || 'support_not_configured' =>
-          'La connexion Gmail doit être configurée sur le serveur.',
-        'rate_limited' =>
-          'Trop de demandes rapprochées. Patientez avant de réessayer.',
-        'version_conflict' ||
-        'stale_thread' ||
-        'conflict' ||
-        'thread_changed' =>
-          'La conversation a changé. Actualisez-la avant de répondre.',
-        'reply_not_allowed' || 'reply_disabled' =>
-          'Les réponses sont désactivées pour cette conversation.',
-        'invalid_input' => 'Vérifiez le contenu de la réponse.',
-        'relay_not_verified' =>
-          'Le routage de cette adresse doit être vérifié avant de répondre.',
-        'consent_incomplete' =>
-          'La connexion Google nécessite les autorisations de lecture et de réponse.',
-        'thread_too_large' =>
-          'Cette conversation dépasse la limite de lecture du cockpit. Ouvrez-la dans Gmail.',
-        'reply_already_attempted' =>
-          'Une réponse a déjà été tentée. Vérifiez cette conversation dans Gmail.',
-        _ =>
-          unknown
-              ? 'Résultat incertain. Vérifiez les messages envoyés dans Gmail. Aucun nouvel envoi automatique.'
-              : 'Le service client est momentanément indisponible. Votre brouillon reste conservé.',
-      }, outcomeUnknown: unknown);
+      throw SupportException(
+        switch (error.code) {
+          'auth_required' || 'authentication_required' =>
+            'Votre session a expiré. Reconnectez votre compte.',
+          'forbidden' ||
+          'admin_required' ||
+          'mailbox_not_allowed' => 'Votre compte n’a pas accès à cette boîte.',
+          'mailbox_not_connected' ||
+          'gmail_reconnect_required' ||
+          'reconnect_required' =>
+            'Reconnectez cette boîte Gmail, puis actualisez les conversations.',
+          'modify_scope_required' =>
+            'Cette connexion Gmail est en lecture seule. Reconnectez la boîte pour autoriser la modification.',
+          'metadata_update_failed' =>
+            'Gmail n’a pas confirmé la modification. Actualisez la conversation avant de réessayer.',
+          'configuration_unavailable' || 'support_not_configured' =>
+            'La connexion Gmail doit être configurée sur le serveur.',
+          'rate_limited' =>
+            'Trop de demandes rapprochées. Patientez avant de réessayer.',
+          'version_conflict' ||
+          'stale_thread' ||
+          'conflict' ||
+          'thread_changed' =>
+            'La conversation a changé. Actualisez-la avant de répondre.',
+          'reply_not_allowed' || 'reply_disabled' =>
+            'Les réponses sont désactivées pour cette conversation.',
+          'invalid_input' ||
+          'invalid_request' => 'Vérifiez le contenu de la réponse.',
+          'invalid_attachments' =>
+            'Vérifiez le nom et le contenu des pièces jointes.',
+          'attachments_too_large' || 'attachment_too_large' =>
+            'Les pièces jointes sont limitées à 3 Mio. Réduisez le fichier ou consultez Gmail.',
+          'attachment_not_found' =>
+            'Cette pièce jointe est indisponible. Actualisez la conversation.',
+          'reply_all_unverified_recipients' =>
+            'Le routage de certains participants doit être vérifié. Choisissez une réponse simple.',
+          'relay_not_verified' =>
+            'Le routage de cette adresse doit être vérifié avant de répondre.',
+          'consent_incomplete' =>
+            'La connexion Google nécessite les autorisations de lecture et de réponse.',
+          'thread_too_large' =>
+            'Cette conversation dépasse la limite de lecture du cockpit. Ouvrez-la dans Gmail.',
+          'reply_already_attempted' =>
+            'Une réponse a déjà été tentée. Vérifiez cette conversation dans Gmail.',
+          _ =>
+            unknown
+                ? 'Résultat incertain. Vérifiez les messages envoyés dans Gmail. Aucun nouvel envoi automatique.'
+                : 'Le service client est momentanément indisponible. Votre brouillon reste conservé.',
+        },
+        outcomeUnknown: unknown,
+        code: error.code,
+      );
+    } on SupportException {
+      rethrow;
     } catch (_) {
       throw SupportException(
         sending
@@ -94,6 +142,10 @@ class CentralSupportRepository implements SupportRepository {
               id: m['id'] as String,
               email: m['email'] as String,
               connected: m['connected'] == true,
+              canModify: m['can_modify'] is bool
+                  ? m['can_modify'] as bool
+                  : null,
+              reconnectRequired: m['reconnect_required'] == true,
             ),
           )
           .toList(),
@@ -143,7 +195,6 @@ class CentralSupportRepository implements SupportRepository {
       throw const FormatException();
     }
   }, sending: true);
-
   SupportStatus _status(dynamic value) =>
       SupportStatus.values.firstWhere((s) => s.name == value);
   DateTime? _date(dynamic value) {
@@ -155,34 +206,36 @@ class CentralSupportRepository implements SupportRepository {
   }
 
   @override
-  Future<SupportPage> threads(String mailboxId, {String? cursor}) =>
-      _guard(() async {
-        final data = await api.get('support/threads', {
-          'mailbox_id': mailboxId,
-          'cursor': ?cursor,
-        });
-        return SupportPage(
-          nextCursor: data['next_cursor'] as String?,
-          items: (data['threads'] as List)
-              .map(
-                (t) => SupportThreadSummary(
-                  id: t['id'] as String,
-                  subject: t['subject'] as String? ?? '',
-                  from: t['from'] as String? ?? '',
-                  snippet: t['snippet'] as String? ?? '',
-                  status: _status(t['status']),
-                  updatedAt: DateTime.tryParse('${t['updated_at']}'),
-                  isUnread: t['is_unread'] is bool
-                      ? t['is_unread'] as bool
-                      : null,
-                  isArchived: t['is_archived'] is bool
-                      ? t['is_archived'] as bool
-                      : null,
-                ),
-              )
-              .toList(),
-        );
-      });
+  Future<SupportPage> threads(
+    String mailboxId, {
+    String? cursor,
+    String? query,
+  }) => _guard(() async {
+    final data = await api.get('support/threads', {
+      'mailbox_id': mailboxId,
+      'cursor': ?cursor,
+      if (query != null && query.trim().isNotEmpty) 'query': query.trim(),
+    });
+    return SupportPage(
+      nextCursor: data['next_cursor'] as String?,
+      items: (data['threads'] as List)
+          .map(
+            (t) => SupportThreadSummary(
+              id: t['id'] as String,
+              subject: t['subject'] as String? ?? '',
+              from: t['from'] as String? ?? '',
+              snippet: t['snippet'] as String? ?? '',
+              status: _status(t['status']),
+              updatedAt: DateTime.tryParse('${t['updated_at']}'),
+              isUnread: t['is_unread'] is bool ? t['is_unread'] as bool : null,
+              isArchived: t['is_archived'] is bool
+                  ? t['is_archived'] as bool
+                  : null,
+            ),
+          )
+          .toList(),
+    );
+  });
   @override
   Future<SupportThread> thread(String mailboxId, String threadId) => _guard(
     () async {
@@ -198,6 +251,10 @@ class CentralSupportRepository implements SupportRepository {
         canReply: t['can_reply'] == true,
         replyTo: t['reply_to'] as String?,
         replyDisabledReason: t['reply_disabled_reason'] as String?,
+        canReplyAll: t['can_reply_all'] == true,
+        replyAllDisabledReason: t['reply_all_disabled_reason'] as String?,
+        replyAllRecipients: (t['reply_all_recipients'] as List? ?? [])
+            .cast<String>(),
         isUnread: t['is_unread'] is bool ? t['is_unread'] as bool : null,
         isArchived: t['is_archived'] is bool ? t['is_archived'] as bool : null,
         messages: (t['messages'] as List)
@@ -209,6 +266,18 @@ class CentralSupportRepository implements SupportRepository {
                     ? (m['to'] as List).join(', ')
                     : m['to'] as String? ?? '',
                 text: m['text'] as String? ?? '',
+                html: m['html'] as String?,
+                cc: m['cc'] as String? ?? '',
+                attachments: (m['attachments'] as List? ?? [])
+                    .map(
+                      (a) => SupportAttachment(
+                        id: a['id'] as String,
+                        name: a['name'] as String,
+                        mimeType: a['mime_type'] as String,
+                        size: (a['size'] as num).toInt(),
+                      ),
+                    )
+                    .toList(),
                 date: DateTime.tryParse('${m['date']}'),
               ),
             )
@@ -241,7 +310,9 @@ class CentralSupportRepository implements SupportRepository {
     if (refreshed.latestMessageId != expectedMessageId ||
         refreshed.isUnread != isUnread ||
         refreshed.isArchived != isArchived) {
-      throw const FormatException();
+      throw const SupportException(
+        'Gmail n’a pas confirmé le nouvel état. Actualisez la conversation.',
+      );
     }
     return refreshed;
   });
@@ -336,12 +407,24 @@ class CentralSupportRepository implements SupportRepository {
     String threadId, {
     required String body,
     required String expectedMessageId,
+    bool replyAll = false,
+    List<SupportReplyAttachment> attachments = const [],
   }) => _guard(() async {
     final data = await api.post('support/threads/$threadId/reply', {
       'mailbox_id': mailboxId,
       'body': body,
       'expected_message_id': expectedMessageId,
       'confirmed': true,
+      'reply_mode': replyAll ? 'reply_all' : 'reply',
+      'attachments': attachments
+          .map(
+            (a) => {
+              'name': a.name,
+              'mime_type': a.mimeType,
+              'data_base64': a.dataBase64,
+            },
+          )
+          .toList(),
     });
     return switch (data['state']) {
       'submitted' => SupportReplyResult.submitted,
@@ -349,4 +432,25 @@ class CentralSupportRepository implements SupportRepository {
       _ => throw const FormatException(),
     };
   }, sending: true);
+
+  Future<Uint8List> download(
+    String mailboxId,
+    String threadId,
+    String messageId,
+    SupportAttachment attachment,
+  ) => _guard(() async {
+    final data = await api.getAttachment(
+      'support/threads/$threadId/messages/$messageId/attachments/${attachment.id}',
+      {'mailbox_id': mailboxId},
+    );
+    final record = data['attachment'] as Map;
+    if (record['id'] != attachment.id || record['size'] != attachment.size) {
+      throw const FormatException();
+    }
+    final bytes = base64Decode(record['data_base64'] as String);
+    if (bytes.length != attachment.size || bytes.length > 3 * 1024 * 1024) {
+      throw const FormatException();
+    }
+    return bytes;
+  });
 }
