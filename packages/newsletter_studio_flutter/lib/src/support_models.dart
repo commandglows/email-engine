@@ -15,9 +15,13 @@ class SupportMailbox {
     required this.id,
     required this.email,
     required this.connected,
+    this.canModify,
+    this.reconnectRequired = false,
   });
   final String id, email;
   final bool connected;
+  final bool? canModify;
+  final bool reconnectRequired;
 }
 
 class SupportContext {
@@ -40,10 +44,15 @@ class SupportThreadSummary {
     required this.snippet,
     required this.status,
     this.updatedAt,
+    this.isUnread,
+    this.isArchived,
   });
   final String id, subject, from, snippet;
   final SupportStatus status;
   final DateTime? updatedAt;
+
+  /// Provider-owned Gmail metadata. Null means the provider state is unknown.
+  final bool? isUnread, isArchived;
 }
 
 class SupportMessage {
@@ -53,9 +62,37 @@ class SupportMessage {
     required this.to,
     required this.text,
     this.date,
+    this.html,
+    this.cc = '',
+    this.attachments = const [],
   });
   final String id, from, to, text;
   final DateTime? date;
+  final String? html;
+  final String cc;
+  final List<SupportAttachment> attachments;
+}
+
+class SupportAttachment {
+  const SupportAttachment({
+    required this.id,
+    required this.name,
+    required this.mimeType,
+    required this.size,
+  });
+  final String id, name, mimeType;
+  final int size;
+}
+
+class SupportReplyAttachment {
+  const SupportReplyAttachment({
+    required this.name,
+    required this.mimeType,
+    required this.dataBase64,
+    required this.size,
+  });
+  final String name, mimeType, dataBase64;
+  final int size;
 }
 
 class SupportThread {
@@ -68,12 +105,79 @@ class SupportThread {
     required this.canReply,
     this.replyTo,
     this.replyDisabledReason,
+    this.canReplyAll = false,
+    this.replyAllDisabledReason,
+    this.replyAllRecipients = const [],
+    this.isUnread,
+    this.isArchived,
   });
   final String id, subject, latestMessageId;
   final SupportStatus status;
   final List<SupportMessage> messages;
   final bool canReply;
   final String? replyTo, replyDisabledReason;
+  final bool canReplyAll;
+  final String? replyAllDisabledReason;
+  final List<String> replyAllRecipients;
+
+  /// Provider-owned Gmail metadata. Null means the provider state is unknown.
+  final bool? isUnread, isArchived;
+}
+
+enum SupportObservabilityState { observed, failure, unknown }
+
+class SupportObservation {
+  const SupportObservation({
+    required this.messageIdHash,
+    required this.observedAt,
+    required this.state,
+  });
+  final String messageIdHash;
+  final DateTime? observedAt;
+  final String state;
+}
+
+class SupportOperationalFailure {
+  const SupportOperationalFailure({
+    required this.stage,
+    required this.code,
+    required this.count,
+    required this.firstAt,
+    required this.lastAt,
+    required this.retryable,
+  });
+  final String stage, code;
+  final int? count;
+  final DateTime? firstAt, lastAt;
+  final bool? retryable;
+}
+
+class SupportObservability {
+  const SupportObservability({
+    required this.coverage,
+    required this.source,
+    required this.window,
+    required this.observedCount,
+    required this.sampledCount,
+    required this.sampleLimit,
+    required this.sampleTruncated,
+    required this.countsByState,
+    required this.stateCountsAvailable,
+    required this.lastObservedAt,
+    required this.oldestSampleAt,
+    required this.sample,
+    required this.sampleAvailable,
+    required this.failures,
+    required this.failuresAvailable,
+  });
+  final String coverage, source, window;
+  final int? observedCount, sampledCount, sampleLimit;
+  final bool? sampleTruncated;
+  final Map<String, int?> countsByState;
+  final bool stateCountsAvailable, sampleAvailable, failuresAvailable;
+  final DateTime? lastObservedAt, oldestSampleAt;
+  final List<SupportObservation> sample;
+  final List<SupportOperationalFailure> failures;
 }
 
 class SupportPage {
@@ -90,6 +194,14 @@ abstract class SupportRepository {
   Future<Uri> connect(String mailboxId);
   Future<SupportPage> threads(String mailboxId, {String? cursor});
   Future<SupportThread> thread(String mailboxId, String threadId);
+  Future<SupportThread> setGmailMetadata(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+    required bool isUnread,
+    required bool isArchived,
+  });
+  Future<SupportObservability> observability(String mailboxId, String window);
   Future<void> setStatus(
     String mailboxId,
     String threadId,
@@ -104,7 +216,12 @@ abstract class SupportRepository {
 }
 
 class SupportException implements Exception {
-  const SupportException(this.message, {this.outcomeUnknown = false});
+  const SupportException(
+    this.message, {
+    this.outcomeUnknown = false,
+    this.code,
+  });
   final String message;
   final bool outcomeUnknown;
+  final String? code;
 }

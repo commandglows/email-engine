@@ -53,6 +53,8 @@ class SourceSidebar extends StatefulWidget {
     this.sectionEmptyMessages = const <String, String>{},
     this.sectionKeys = const <String, GlobalKey>{},
     this.readerFooter,
+    this.readerBody,
+    this.searchHint,
   });
 
   final String title;
@@ -100,6 +102,12 @@ class SourceSidebar extends StatefulWidget {
 
   /// Contextual actions/composer in the existing reader's scroll surface.
   final Widget? readerFooter;
+
+  /// Host-supplied enriched content replacing the default plain text body.
+  final Widget? readerBody;
+
+  /// Search scope label supplied by hosts backed by paged data.
+  final String? searchHint;
 
   @override
   State<SourceSidebar> createState() => _SourceSidebarState();
@@ -1084,6 +1092,7 @@ class _SourceSidebarState extends State<SourceSidebar> {
                         colors: _colors,
                         searchController: _searchController,
                         searchFocus: _searchFocus,
+                        searchHint: widget.searchHint,
                         onSearchChanged: (query) =>
                             setState(() => _query = query),
                         onMenu: _showNavigationSheet,
@@ -1151,6 +1160,7 @@ class _SourceSidebarState extends State<SourceSidebar> {
                                     )
                                   : _ReaderPane(
                                       readerFooter: widget.readerFooter,
+                                      readerBody: widget.readerBody,
                                       item: _selectedItem!,
                                       items: _visibleItems,
                                       style: widget.style,
@@ -1242,6 +1252,7 @@ class _SourceSidebarState extends State<SourceSidebar> {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     this.grouped = false,
+    this.searchHint,
     required this.title,
     required this.compact,
     required this.style,
@@ -1258,6 +1269,7 @@ class _TopBar extends StatelessWidget {
 
   final String title;
   final bool grouped;
+  final String? searchHint;
   final bool compact;
   final SourceSidebarStyle style;
   final SourceSidebarColors colors;
@@ -1305,7 +1317,7 @@ class _TopBar extends StatelessWidget {
     );
 
     final search = _SourceSearch(
-      hint: grouped ? 'Search emails' : 'Search sources',
+      hint: searchHint ?? (grouped ? 'Search emails' : 'Search sources'),
       controller: searchController,
       focusNode: searchFocus,
       style: style,
@@ -2360,6 +2372,7 @@ class _CategoryIndicators extends StatelessWidget {
 class _ReaderPane extends StatelessWidget {
   const _ReaderPane({
     this.readerFooter,
+    this.readerBody,
     required this.item,
     required this.items,
     required this.style,
@@ -2382,6 +2395,7 @@ class _ReaderPane extends StatelessWidget {
 
   final SourceSidebarItem item;
   final Widget? readerFooter;
+  final Widget? readerBody;
   final List<SourceSidebarItem> items;
   final SourceSidebarStyle style;
   final SourceSidebarColors colors;
@@ -2635,14 +2649,15 @@ class _ReaderPane extends StatelessWidget {
                           ),
                         ],
                         SizedBox(height: style.gap3XLarge),
-                        Text(
-                          item.content,
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                color: colors.foreground,
-                                height: style.readerLineHeight,
-                              ),
-                        ),
+                        readerBody ??
+                            Text(
+                              item.content,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(
+                                    color: colors.foreground,
+                                    height: style.readerLineHeight,
+                                  ),
+                            ),
                         if (readerFooter != null) ...[
                           SizedBox(height: style.gap3XLarge),
                           readerFooter!,

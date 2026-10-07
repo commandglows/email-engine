@@ -11,6 +11,9 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.6.0
+  file_picker: ^13.1.0
+  flutter_widget_from_html_core: ^0.17.4
+  html: ^0.15.6
   url_launcher: ^6.3.2
   source_sidebar_flutter:
     path: ../packages/source_sidebar_flutter

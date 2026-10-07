@@ -45,6 +45,20 @@ class CentralEmailApi {
   Future<Map<String, dynamic>> get(String path, [Map<String, String>? query]) =>
       _request('GET', path, query: query);
 
+  /// Only the authenticated support attachment contract may use the larger
+  /// response allowance. Ordinary campaign and mailbox receipts remain bounded.
+  Future<Map<String, dynamic>> getAttachment(
+    String path,
+    Map<String, String> query,
+  ) {
+    if (!RegExp(
+      r'^support/threads/[a-zA-Z0-9_-]+/messages/[a-zA-Z0-9_-]+/attachments/[a-zA-Z0-9_.-]+$',
+    ).hasMatch(path)) {
+      throw const EmailApiException('invalid_input');
+    }
+    return _request('GET', path, query: query, responseLimit: 4_400_000);
+  }
+
   /// A retry of the exact uncertain command reuses its identity. Edits represent
   /// a different intent and therefore receive a different key. No automatic retry.
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) =>
@@ -55,8 +69,13 @@ class CentralEmailApi {
     String path, {
     Map<String, String>? query,
     Map<String, dynamic>? body,
+    int responseLimit = maxResponseBytes,
   }) async {
-    if (!RegExp(r'^[a-zA-Z0-9_/-]+$').hasMatch(path) || path.contains('..')) {
+    final attachmentPath = RegExp(
+      r'^support/threads/[a-zA-Z0-9_-]+/messages/[a-zA-Z0-9_-]+/attachments/[a-zA-Z0-9_.-]+$',
+    ).hasMatch(path);
+    if ((!RegExp(r'^[a-zA-Z0-9_/-]+$').hasMatch(path) && !attachmentPath) ||
+        path.contains('..')) {
       throw const EmailApiException('invalid_input');
     }
     final uri = origin.replace(
@@ -95,7 +114,7 @@ class CentralEmailApi {
       }
       final bytes = <int>[];
       await for (final chunk in response.stream) {
-        if (bytes.length + chunk.length > maxResponseBytes) {
+        if (bytes.length + chunk.length > responseLimit) {
           throw const EmailApiException('invalid_backend_receipt');
         }
         bytes.addAll(chunk);

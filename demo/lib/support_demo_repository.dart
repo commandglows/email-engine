@@ -70,6 +70,25 @@ class DemoSupportRepository implements SupportRepository {
   }
 
   @override
+  Future<SupportThread> setGmailMetadata(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+    required bool isUnread,
+    required bool isArchived,
+  }) async => throw const SupportException(
+    'La démonstration ne modifie aucune boîte Gmail.',
+  );
+
+  @override
+  Future<SupportObservability> observability(
+    String mailboxId,
+    String window,
+  ) async => throw const SupportException(
+    'Les journaux entrants ne sont pas disponibles dans la démonstration.',
+  );
+
+  @override
   Future<void> setStatus(
     String mailboxId,
     String threadId,

@@ -128,4 +128,8 @@ Hosts can reuse the existing dense rows and reader across providers using
 links into the existing sidebar. `sectionKeys` supplies scroll anchors;
 `sectionEmptyMessages` keeps individual empty/error states visible.
 `readerFooter` adds contextual actions without creating another reader.
+`readerBody` replaces plain text with a host-owned enriched reader; hosts retain
+responsibility for sanitization and external resource policy. `searchHint`
+clarifies search scope, for example filtering loaded rows rather than searching
+an entire provider mailbox. Neither hook fetches data or alters provider state.
 Without grouping, the original Sources behavior is unchanged.

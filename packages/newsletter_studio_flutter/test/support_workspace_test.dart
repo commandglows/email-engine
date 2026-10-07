@@ -9,6 +9,7 @@ class FakeSupportRepository implements SupportRepository {
   int sends = 0;
   String? sentBody;
   SupportStatus status = SupportStatus.pending;
+  bool isUnread = true, isArchived = false;
   @override
   Future<SupportContext> context() async => SupportContext(
     configured: configured,
@@ -34,6 +35,8 @@ class FakeSupportRepository implements SupportRepository {
             from: 'Camille',
             snippet: 'Mon accès',
             status: status,
+            isUnread: isUnread,
+            isArchived: isArchived,
           ),
         ],
       );
@@ -45,6 +48,8 @@ class FakeSupportRepository implements SupportRepository {
         status: status,
         latestMessageId: 'm1',
         canReply: true,
+        isUnread: isUnread,
+        isArchived: isArchived,
         replyTo: 'relay@exemple.test',
         messages: const [
           SupportMessage(
@@ -63,6 +68,41 @@ class FakeSupportRepository implements SupportRepository {
   ) async {
     status = value;
   }
+
+  @override
+  Future<SupportThread> setGmailMetadata(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+    required bool isUnread,
+    required bool isArchived,
+  }) async {
+    this.isUnread = isUnread;
+    this.isArchived = isArchived;
+    return thread(mailboxId, threadId);
+  }
+
+  @override
+  Future<SupportObservability> observability(
+    String mailboxId,
+    String window,
+  ) async => const SupportObservability(
+    coverage: 'partial',
+    source: 'operator_mailbox_paging',
+    window: '24h',
+    observedCount: 0,
+    sampledCount: 0,
+    sampleLimit: 50,
+    sampleTruncated: false,
+    countsByState: {},
+    stateCountsAvailable: true,
+    lastObservedAt: null,
+    oldestSampleAt: null,
+    sample: [],
+    sampleAvailable: true,
+    failures: [],
+    failuresAvailable: true,
+  );
 
   @override
   Future<SupportReplyResult> reply(

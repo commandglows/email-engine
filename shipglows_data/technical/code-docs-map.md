@@ -1,10 +1,10 @@
 ---
 artifact: code_docs_map
 metadata_schema_version: "1.0"
-artifact_version: "1.0.0"
+artifact_version: "1.1.0"
 project: email-sidebar-app
 created: "2026-09-03"
-updated: "2026-09-03"
+updated: "2026-10-07"
 status: reviewed
 source_skill: sg-docs
 scope: repository-code-to-documentation-routing
@@ -32,6 +32,7 @@ supersedes: []
 evidence:
   - Major tracked code, configuration, public documentation, and test paths inspected on 2026-09-03.
   - Keyboard-first email workspace verified with 19 package tests and 7 demo tests.
+  - 2026-10-07: mapped authenticated support adapters, enriched Gmail controls, and their CommandGlows API contract to the app README and support specification.
 next_review: "2026-12-03"
 next_step: apply this map to every code-changing documentation reflection
 ---
@@ -52,6 +53,7 @@ An unmatched tracked code area is `needs review` until this map is extended.
 
 | Code or configuration path | Responsibility | Primary documentation owner | Secondary context | Update trigger | Focused proof |
 | --- | --- | --- | --- | --- | --- |
+| `app/lib/**`, `app/pubspec*`, `app/test/**` | Authenticated operator adapters, enriched Gmail support, Gmail metadata/observability, and campaign controls | `app/README.md` | CommandGlows `gmail-support-api.md` and `newsletter-campaign-api.md`; active implementation spec | API fields, auth/data/provider boundary, search, attachment, recipient, rendering, metadata mutation, or observability changes | `cd app && flutter analyze && flutter test` through the host Doppler scope; separate hosted provider proof |
 | `packages/source_sidebar_flutter/lib/**` | Source/email list, reader, keyboard workflow, models, host callbacks, and presentation API | `packages/source_sidebar_flutter/README.md` | `design-system-authority.md`; active source-sidebar spec | Public API, shortcut, focus, state, callback, host-boundary, layout, or styling behavior changes | `cd packages/source_sidebar_flutter && flutter analyze && flutter test` |
 | `packages/source_sidebar_flutter/test/**` | Durable source-sidebar behavior proof | `packages/source_sidebar_flutter/README.md` | Active source-sidebar spec | Accepted behavior, supported scenario, or documented proof claim changes; pure refactoring of equivalent assertions is non-impacting | `cd packages/source_sidebar_flutter && flutter test` |
 | `packages/source_sidebar_flutter/pubspec.yaml` | Package identity, SDK range, and dependencies | `packages/source_sidebar_flutter/README.md` | Root `README.md` | Consumer requirements, dependency model, installation path, or supported runtime changes | `cd packages/source_sidebar_flutter && flutter pub get && flutter analyze && flutter test` |

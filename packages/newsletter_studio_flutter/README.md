@@ -138,3 +138,12 @@ through responsive reparenting; it does not fetch or authenticate providers.
 `SupportWorkspace(repository:, onConnect:)` owns the conversation journey.
 Hosts implement `SupportRepository`; never pass OAuth tokens to presentation.
 Unknown reply outcomes block repeated sends; successful submission is not delivery.
+Support models also carry optional sanitized HTML, attachment metadata, Cc and
+server-derived reply-all eligibility/recipients. The authenticated operator owns
+enriched rendering, authenticated downloads, file selection and confirmations;
+the presentation models never accept provider credentials.
+Support repositories also carry Gmail-confirmed `isUnread` and `isArchived`
+state, a metadata mutation, and bounded incoming observability. Null provider
+state remains unknown. Observability models keep window counts, sampled hashed
+IDs, freshness, and redacted failure metadata distinct so the UI does not infer
+totals from an incomplete sample.

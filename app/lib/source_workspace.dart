@@ -5,6 +5,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'central_email_api.dart';
 import 'campaign_repository.dart';
 import 'support_repository.dart';
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
+import 'support_reader.dart';
 
 /// One list and reader. Provider identities stay scoped outside display IDs.
 class ReaderSourceWorkspace extends StatefulWidget {
@@ -36,6 +39,9 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
   final _sessions = <String, CampaignEditorSession>{};
   final _drafts = <String, TextEditingController>{};
   final _lockedReplies = <String>{};
+  final _replyAll = <String, bool>{};
+  final _attachments = <String, List<SupportReplyAttachment>>{};
+  String _supportQuery = '';
   final _notices = <String, String>{};
   final _sectionKeys = {
     for (final id in ['sources', 'support', 'diffusion']) id: GlobalKey(),
@@ -168,6 +174,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
       final page = await _support.threads(
         box.id,
         cursor: more ? _cursors[key] : null,
+        query: _supportQuery,
       );
       _cursor(key, page.nextCursor);
       for (final thread in page.items) {
@@ -447,14 +454,29 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     SupportThread thread,
     TextEditingController draft,
   ) async {
-    if (_busy || !thread.canReply || draft.text.trim().isEmpty) return;
+    final replyAll = _replyAll[id] == true;
+    if (_busy ||
+        !thread.canReply ||
+        (replyAll && !thread.canReplyAll) ||
+        draft.text.trim().isEmpty) {
+      return;
+    }
     final text = draft.text.trim();
+    final files = List<SupportReplyAttachment>.of(_attachments[id] ?? []);
+    final recipients = replyAll ? thread.replyAllRecipients : [thread.replyTo!];
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Envoyer cette réponse ?'),
+        title: Text(
+          replyAll
+              ? 'Envoyer cette réponse à tous ?'
+              : 'Envoyer cette réponse ?',
+        ),
         content: SingleChildScrollView(
-          child: Text('Via ${thread.replyTo}\n\n$text'),
+          child: Text(
+            'Destinataires : ${recipients.join(', ')}\n\n$text'
+            '${files.isEmpty ? '' : '\n\nPièces jointes : ${files.map((f) => f.name).join(', ')}'}',
+          ),
         ),
         actions: [
           TextButton(
@@ -477,6 +499,8 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
         original,
         body: text,
         expectedMessageId: thread.latestMessageId,
+        replyAll: replyAll,
+        attachments: files,
       );
       _lockedReplies.add('$id:${thread.latestMessageId}');
       if (!mounted) return;
@@ -484,7 +508,10 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
         _error = result == SupportReplyResult.submitted
             ? 'Réponse acceptée par Gmail.'
             : 'Résultat incertain. Vérifiez Gmail avant tout autre envoi.';
-        if (result == SupportReplyResult.submitted) draft.clear();
+        if (result == SupportReplyResult.submitted) {
+          draft.clear();
+          _attachments.remove(id);
+        }
       });
     } catch (error) {
       if (error is! SupportException || error.outcomeUnknown) {
@@ -494,6 +521,141 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _pickAttachments(String id) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final picked = await FilePicker.pickFiles(
+        dialogTitle: 'Joindre des fichiers',
+      );
+      final files = List<SupportReplyAttachment>.of(_attachments[id] ?? []);
+      if (files.length + picked.length > 10) {
+        throw const SupportException(
+          'Vous pouvez joindre au maximum 10 fichiers.',
+        );
+      }
+      var total = files.fold<int>(0, (sum, f) => sum + f.size);
+      for (final file in picked) {
+        final size = file.lengthSync() ?? await file.length();
+        if (size == null ||
+            size > 3 * 1024 * 1024 ||
+            total + size > 3 * 1024 * 1024) {
+          throw const SupportException(
+            'Les pièces jointes sont limitées à 3 Mio au total.',
+          );
+        }
+        final chunks = <int>[];
+        await for (final chunk in file.readAsByteStream()) {
+          if (total + chunks.length + chunk.length > 3 * 1024 * 1024) {
+            throw const SupportException(
+              'Les pièces jointes sont limitées à 3 Mio au total.',
+            );
+          }
+          chunks.addAll(chunk);
+        }
+        final bytes = chunks;
+        total += bytes.length;
+        if (total > 3 * 1024 * 1024) {
+          throw const SupportException(
+            'Les pièces jointes sont limitées à 3 Mio au total.',
+          );
+        }
+        files.add(
+          SupportReplyAttachment(
+            name: file.name,
+            mimeType: 'application/octet-stream',
+            dataBase64: base64Encode(bytes),
+            size: bytes.length,
+          ),
+        );
+      }
+      if (mounted) setState(() => _attachments[id] = files);
+    } catch (error) {
+      if (mounted) setState(() => _error = _message(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _download(
+    String id,
+    SupportMessage message,
+    SupportAttachment attachment,
+  ) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final (mailbox, thread) = _threads[id]!;
+      final bytes = await _support.download(
+        mailbox,
+        thread,
+        message.id,
+        attachment,
+      );
+      await FilePicker.saveFile(
+        dialogTitle: 'Enregistrer la pièce jointe',
+        fileName: safeDownloadName(attachment.name),
+        bytes: bytes,
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = _message(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _searchSupport() async {
+    if (_loading || _busy) return;
+    final query = TextEditingController(text: _supportQuery);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rechercher dans toutes les boîtes Gmail'),
+        content: TextField(
+          controller: query,
+          autofocus: true,
+          maxLength: 512,
+          decoration: const InputDecoration(
+            labelText: 'Recherche Gmail',
+            helperText:
+                'Inclut les archives, spams et corbeille. Ex. : has:attachment',
+          ),
+          onSubmitted: (value) => Navigator.pop(context, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, query.text.trim()),
+            child: const Text('Rechercher'),
+          ),
+        ],
+      ),
+    );
+    // The dialog route may still use its controller during the closing frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) => query.dispose());
+    if (value == null || !mounted) return;
+    _supportQuery = value;
+    await _load();
+  }
+
+  Widget? _readerBody() {
+    final id = _selected;
+    final thread = _details[id];
+    if (id == null || thread == null) return null;
+    return SupportReader(
+      key: ValueKey('reader:$id'),
+      thread: thread,
+      busy: _busy,
+      onDownload: (message, attachment) => _download(id, message, attachment),
+      onOpenLink: (uri) async {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      },
+    );
   }
 
   Widget? _footer() {
@@ -516,6 +678,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     final locked = _lockedReplies.contains('$id:${thread.latestMessageId}');
     final allowed =
         thread.canReply && _supportContext?.canReply == true && !locked;
+    final replyAll = _replyAll[id] == true;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -532,6 +695,31 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
               .toList(),
         ),
         SizedBox(height: _style.gapLarge),
+        Wrap(
+          spacing: _style.gapSmall,
+          children: [
+            ChoiceChip(
+              label: const Text('Réponse simple'),
+              selected: !replyAll,
+              onSelected: _busy
+                  ? null
+                  : (_) => setState(() => _replyAll[id] = false),
+            ),
+            ChoiceChip(
+              label: const Text('Répondre à tous'),
+              selected: replyAll,
+              onSelected: _busy || !thread.canReplyAll
+                  ? null
+                  : (_) => setState(() => _replyAll[id] = true),
+            ),
+          ],
+        ),
+        if (!thread.canReplyAll)
+          const Text(
+            'Réponse à tous indisponible : le routage des participants doit être vérifié.',
+          ),
+        if (replyAll)
+          Text('Destinataires : ${thread.replyAllRecipients.join(', ')}'),
         TextField(
           key: ValueKey('reply:$id'),
           controller: draft,
@@ -545,6 +733,29 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
           ),
         ),
         SizedBox(height: _style.gapSmall),
+        for (final file in _attachments[id] ?? <SupportReplyAttachment>[])
+          ListTile(
+            title: Text(file.name),
+            subtitle: Text('${file.size} octets'),
+            trailing: IconButton(
+              tooltip: 'Retirer ${file.name}',
+              icon: const Icon(Icons.close),
+              onPressed: _busy
+                  ? null
+                  : () => setState(() => _attachments[id]!.remove(file)),
+            ),
+          ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _busy || !allowed ? null : () => _pickAttachments(id),
+            icon: const Icon(Icons.attach_file),
+            label: const Text('Joindre des fichiers'),
+          ),
+        ),
+        const Text(
+          '10 fichiers maximum · 3 Mio au total. Brouillon conservé pendant cette session.',
+        ),
         Text(
           allowed
               ? 'La réponse utilise le relais vérifié : ${thread.replyTo}'
@@ -556,7 +767,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
         Align(
           alignment: Alignment.centerLeft,
           child: FilledButton(
-            onPressed: _busy || !allowed
+            onPressed: _busy || !allowed || (replyAll && !thread.canReplyAll)
                 ? null
                 : () => _reply(id, thread, draft),
             child: const Text('Répondre'),
@@ -577,7 +788,49 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     sectionEmptyMessages: _notices,
     sectionKeys: _sectionKeys,
     readerFooter: _footer(),
+    readerBody: _readerBody(),
+    searchHint: 'Filtrer les éléments déjà chargés',
+    navigationHeader: _supportQuery.isEmpty
+        ? null
+        : Padding(
+            padding: _style.searchPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(child: Text('Recherche Gmail')),
+                    IconButton(
+                      tooltip: 'Effacer la recherche Gmail',
+                      onPressed: _loading || _busy
+                          ? null
+                          : () async {
+                              _supportQuery = '';
+                              await _load();
+                            },
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                Tooltip(
+                  message: _supportQuery,
+                  child: Text(
+                    _supportQuery,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Text('Toutes les boîtes · résultats paginés'),
+                SizedBox(height: _style.gapLarge),
+              ],
+            ),
+          ),
     topBarActions: [
+      IconButton(
+        tooltip: 'Rechercher dans toutes les boîtes Gmail',
+        onPressed: _loading || _busy ? null : _searchSupport,
+        icon: const Icon(Icons.manage_search),
+      ),
       if (_supportContext?.mailboxes.isNotEmpty == true)
         PopupMenuButton<String>(
           tooltip: 'Connecter une boîte Gmail',

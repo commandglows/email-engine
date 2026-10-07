@@ -20,8 +20,14 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   final TextEditingController _reply = TextEditingController();
   String? _cursor, _error, _notice;
   String _filter = '';
+  String _observabilityWindow = '24h';
+  SupportObservability? _observability;
+  String? _observabilityError;
   bool _loading = true, _busy = false;
+  bool _needsReconnect = false;
+  bool _needsMetadataRefresh = false;
   int _generation = 0;
+  int _observabilityGeneration = 0;
   String get _key => '${_mailbox?.id}/${_thread?.id}';
   String get _replyKey => '$_key/${_thread?.latestMessageId}';
   @override
@@ -71,10 +77,13 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
     setState(() {
       _mailbox = mailbox;
       _thread = null;
+      _needsMetadataRefresh = false;
       _items.clear();
       _cursor = null;
       _notice = null;
       _error = null;
+      _observability = null;
+      _observabilityError = null;
       _loading = mailbox.connected;
     });
     if (!mailbox.connected) return;
@@ -86,11 +95,40 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
         _cursor = page.nextCursor;
         _loading = false;
       });
+      await _loadObservability(mailbox.id);
     } catch (error) {
       if (mounted && generation == _generation) {
         setState(() {
           _error = _safe(error);
           _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadObservability(String mailboxId) async {
+    final generation = ++_observabilityGeneration;
+    final requestedWindow = _observabilityWindow;
+    try {
+      final value = await widget.repository.observability(
+        mailboxId,
+        requestedWindow,
+      );
+      if (mounted &&
+          _mailbox?.id == mailboxId &&
+          generation == _observabilityGeneration) {
+        setState(() {
+          _observability = value;
+          _observabilityError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted &&
+          _mailbox?.id == mailboxId &&
+          generation == _observabilityGeneration) {
+        setState(() {
+          _observability = null;
+          _observabilityError = _safe(error);
         });
       }
     }
@@ -102,14 +140,209 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
       _busy = true;
       _error = null;
       _notice = null;
+      _needsReconnect = false;
     });
     try {
       await action();
     } catch (error) {
-      if (mounted) setState(() => _error = _safe(error));
+      if (mounted) {
+        setState(() {
+          _error = _safe(error);
+          _needsReconnect =
+              error is SupportException &&
+              error.code == 'modify_scope_required';
+        });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _reconnectMailbox() async {
+    final mailbox = _mailbox;
+    if (mailbox == null || widget.onConnect == null) return;
+    await _operation(() async {
+      final uri = await widget.repository.connect(mailbox.id);
+      await widget.onConnect!(uri);
+      if (mounted) {
+        setState(
+          () => _notice =
+              'Terminez la reconnexion Google, puis actualisez Gmail.',
+        );
+      }
+    });
+  }
+
+  Widget _observabilityPanel() {
+    final data = _observability;
+    final error = _observabilityError;
+    return ExpansionTile(
+      key: const ValueKey('support-observability'),
+      title: const Text('Journal et métriques entrants'),
+      subtitle: Text(
+        data == null
+            ? error == null
+                  ? 'Données non chargées'
+                  : 'Données indisponibles'
+            : 'Couverture partielle · observation lors du parcours des boîtes Gmail',
+      ),
+      childrenPadding: const EdgeInsets.fromLTRB(
+        EmailCockpitLayout.gap,
+        0,
+        EmailCockpitLayout.gap,
+        EmailCockpitLayout.gap,
+      ),
+      children: [
+        Row(
+          children: [
+            const Text('Période'),
+            const SizedBox(width: EmailCockpitLayout.gap),
+            DropdownButton<String>(
+              value: _observabilityWindow,
+              items: const [
+                DropdownMenuItem(value: '24h', child: Text('24 heures')),
+                DropdownMenuItem(value: '7d', child: Text('7 jours')),
+                DropdownMenuItem(value: '30d', child: Text('30 jours')),
+                DropdownMenuItem(value: '90d', child: Text('90 jours')),
+              ],
+              onChanged: _busy
+                  ? null
+                  : (value) {
+                      if (value == null || _mailbox == null) return;
+                      setState(() => _observabilityWindow = value);
+                      _loadObservability(_mailbox!.id);
+                    },
+            ),
+            const Spacer(),
+            IconButton(
+              tooltip: 'Actualiser le journal entrant',
+              onPressed: _busy || _mailbox == null
+                  ? null
+                  : () => _loadObservability(_mailbox!.id),
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        if (error != null) Text('Journal indisponible : $error'),
+        if (data == null && error == null)
+          const Text(
+            'Aucune mesure disponible. Cela ne signifie pas zéro message reçu.',
+          ),
+        if (data != null) ...[
+          const Text(
+            'Les lignes indiquent une observation dans Gmail, pas la réception fournisseur ni la livraison au destinataire.',
+          ),
+          Text(
+            'Couverture : ${data.coverage} · source : ${data.source} · période : ${data.window}',
+          ),
+          Text(
+            data.observedCount == null
+                ? 'Messages observés : indisponible'
+                : 'Messages observés dans la période : ${data.observedCount}',
+          ),
+          Text(
+            data.sampledCount == null
+                ? 'Échantillon : indisponible'
+                : 'Lignes échantillonnées : ${data.sampledCount}${data.sampleLimit == null ? '' : ' / limite ${data.sampleLimit}'}',
+          ),
+          Text(
+            data.sampleTruncated == null
+                ? 'Complétude de l’échantillon : indisponible'
+                : data.sampleTruncated!
+                ? 'Échantillon tronqué à la limite configurée.'
+                : 'Échantillon complet pour cette période.',
+          ),
+          if (!data.stateCountsAvailable)
+            const Text('Répartition par état : indisponible')
+          else if (data.countsByState.isEmpty)
+            const Text('Aucun état recensé dans la période.')
+          else
+            Text(
+              'États observés : ${data.countsByState.entries.map((entry) => '${entry.key} ${entry.value?.toString() ?? 'indisponible'}').join(' · ')}',
+            ),
+          Text(
+            'Dernière observation : ${_dateLabel(data.lastObservedAt)} · échantillon le plus ancien : ${_dateLabel(data.oldestSampleAt)}',
+          ),
+          if (!data.sampleAvailable)
+            const Text('Échantillon indisponible.')
+          else if (data.sample.isEmpty && data.sampledCount == 0)
+            const Text('Aucune observation échantillonnée dans la période.')
+          else if (data.sample.isEmpty)
+            const Text('Les lignes de l’échantillon ne sont pas disponibles.')
+          else ...[
+            const Text('Échantillon (identifiants hachés)'),
+            for (final item in data.sample.take(30))
+              Text(
+                '${item.state} · ${item.messageIdHash.isEmpty ? 'identifiant haché indisponible' : item.messageIdHash} · ${_dateLabel(item.observedAt)}',
+              ),
+          ],
+          if (!data.failuresAvailable)
+            const Text('Journal des échecs indisponible.')
+          else if (data.failures.isEmpty)
+            const Text('Aucun échec enregistré dans cette fenêtre.')
+          else ...[
+            const Text('Échecs opérationnels'),
+            for (final failure in data.failures)
+              Text(
+                '${failure.stage} · ${failure.code} · ${failure.count?.toString() ?? 'nombre indisponible'} occurrence(s) · première ${_dateLabel(failure.firstAt)} · dernière ${_dateLabel(failure.lastAt)} · ${failure.retryable == null
+                    ? 'reprise inconnue'
+                    : failure.retryable!
+                    ? 'réconciliation possible'
+                    : 'pas de nouvelle tentative automatique'}',
+              ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  String _dateLabel(DateTime? date) => date == null
+      ? 'indisponible'
+      : date.toLocal().toString().substring(0, 16);
+
+  Future<void> _setGmailMetadata({bool? unread, bool? archived}) async {
+    final thread = _thread;
+    final mailbox = _mailbox;
+    if (thread == null ||
+        mailbox == null ||
+        thread.isUnread == null ||
+        thread.isArchived == null) {
+      return;
+    }
+    await _operation(() async {
+      late final SupportThread updated;
+      try {
+        updated = await widget.repository.setGmailMetadata(
+          mailbox.id,
+          thread.id,
+          expectedMessageId: thread.latestMessageId,
+          isUnread: unread ?? thread.isUnread!,
+          isArchived: archived ?? thread.isArchived!,
+        );
+      } catch (_) {
+        _needsMetadataRefresh = true;
+        rethrow;
+      }
+      if (!mounted) return;
+      setState(() {
+        _needsMetadataRefresh = false;
+        _thread = updated;
+        final index = _items.indexWhere((item) => item.id == updated.id);
+        if (index >= 0) {
+          final old = _items[index];
+          _items[index] = SupportThreadSummary(
+            id: old.id,
+            subject: old.subject,
+            from: old.from,
+            snippet: old.snippet,
+            status: old.status,
+            updatedAt: old.updatedAt,
+            isUnread: updated.isUnread,
+            isArchived: updated.isArchived,
+          );
+        }
+      });
+    });
   }
 
   Future<void> _open(SupportThreadSummary item) => _operation(() async {
@@ -117,6 +350,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
     if (!mounted) return;
     setState(() {
       _thread = thread;
+      _needsMetadataRefresh = false;
       _reply.text = _drafts[_key] ?? '';
     });
   });
@@ -232,7 +466,28 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
           ),
         ),
         if (_error != null) _banner(_error!, error: true),
+        if (_needsReconnect || mailbox?.reconnectRequired == true)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: EmailCockpitLayout.gap,
+              ),
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _reconnectMailbox,
+                icon: const Icon(Icons.link),
+                label: const Text(
+                  'Reconnecter Gmail avec les droits de modification',
+                ),
+              ),
+            ),
+          ),
         if (_notice != null) _banner(_notice!),
+        if (mailbox?.connected == true && mailbox?.canModify != true)
+          _banner(
+            'Cette connexion Gmail est en lecture seule. Les changements Gmail sont désactivés jusqu’à la reconnexion avec l’autorisation requise.',
+          ),
+        if (mailbox?.connected == true) _observabilityPanel(),
         if (_busy) const LinearProgressIndicator(),
         Expanded(
           child: _loading
@@ -383,7 +638,15 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Text(
-                    '${item.from}\n${item.status.label} · ${item.snippet}',
+                    '${item.from}\n${item.status.label} · ${item.isUnread == null
+                        ? "Lecture Gmail inconnue"
+                        : item.isUnread!
+                        ? "Non lu"
+                        : "Lu"} · ${item.isArchived == null
+                        ? "Archivage inconnu"
+                        : item.isArchived!
+                        ? "Archivé"
+                        : "Boîte de réception"} · ${item.snippet}',
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -438,6 +701,88 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             ),
           ),
         Text(thread.subject, style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        Wrap(
+          spacing: EmailCockpitLayout.smallGap,
+          runSpacing: EmailCockpitLayout.smallGap,
+          children: [
+            Chip(
+              label: Text(
+                thread.isUnread == null
+                    ? 'Lecture Gmail inconnue'
+                    : thread.isUnread!
+                    ? 'Non lu dans Gmail'
+                    : 'Lu dans Gmail',
+              ),
+            ),
+            Chip(
+              label: Text(
+                thread.isArchived == null
+                    ? 'Archivage Gmail inconnu'
+                    : thread.isArchived!
+                    ? 'Archivé dans Gmail'
+                    : 'Dans la boîte de réception Gmail',
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed:
+                  _busy ||
+                      _mailbox?.canModify != true ||
+                      thread.isUnread == null
+                  ? null
+                  : () => _setGmailMetadata(unread: !thread.isUnread!),
+              icon: Icon(
+                thread.isUnread == true
+                    ? Icons.mark_email_read_outlined
+                    : Icons.mark_email_unread_outlined,
+              ),
+              label: Text(
+                thread.isUnread == true
+                    ? 'Marquer comme lu'
+                    : 'Marquer comme non lu',
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed:
+                  _busy ||
+                      _mailbox?.canModify != true ||
+                      thread.isArchived == null
+                  ? null
+                  : () => _setGmailMetadata(archived: !thread.isArchived!),
+              icon: Icon(
+                thread.isArchived == true
+                    ? Icons.unarchive_outlined
+                    : Icons.archive_outlined,
+              ),
+              label: Text(
+                thread.isArchived == true
+                    ? 'Restaurer dans la boîte'
+                    : 'Archiver dans Gmail',
+              ),
+            ),
+            if (thread.isUnread == null ||
+                thread.isArchived == null ||
+                _needsMetadataRefresh)
+              TextButton.icon(
+                onPressed: _busy
+                    ? null
+                    : () => _operation(() async {
+                        final refreshed = await widget.repository.thread(
+                          _mailbox!.id,
+                          thread.id,
+                        );
+                        if (mounted) {
+                          setState(() {
+                            _thread = refreshed;
+                            _needsMetadataRefresh = false;
+                          });
+                        }
+                      }),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Actualiser l’état Gmail'),
+              ),
+          ],
+        ),
         const SizedBox(height: EmailCockpitLayout.mediumGap),
         Wrap(
           spacing: EmailCockpitLayout.smallGap,
@@ -474,6 +819,8 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                                   snippet: old.snippet,
                                   status: refreshed.status,
                                   updatedAt: old.updatedAt,
+                                  isUnread: old.isUnread,
+                                  isArchived: old.isArchived,
                                 );
                               }
                             });

@@ -5,6 +5,8 @@ The default interface is one shared email list and reader: **Sources** (Readwise
 **Diffusion** (Postmark campaigns). The three groups appear in this order in one
 scrolling list. A single sidebar jumps to each group; contextual reader actions
 handle support replies and campaign editing. There is no separate overview.
+Support includes safe HTML reading, reply attachments, verified-relay reply all
+and paginated Gmail server search across authorized mailboxes.
 The demo at `/` uses fictional data.
 The authenticated `app` has server-backed adapters with explicit configuration
 states. No provider connection or successful delivery is implied by the preview.
