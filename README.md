@@ -1,4 +1,4 @@
-# ShipGlows Email Engine
+# Email Engine
 
 The default interface is one shared email list and reader: **Sources** (Readwise Reader),
 **Service client** (owned Gmail accounts with Mutant Mail relay routing), and

@@ -2,7 +2,7 @@
 artifact: implementation_spec
 metadata_schema_version: "1.0"
 artifact_version: "1.0.0"
-project: shipglows-email-engine
+project: email-engine
 created: "2026-09-08"
 updated: "2026-09-08"
 created_at: "2026-09-08T12:00:00Z"
@@ -109,7 +109,7 @@ Run backend email tests/type checks; newsletter package and affected app Flutter
 The existing email service and identity service may use different Convex deployments; maintain separate authority resolution. Existing pilot transport capacity and allowlist stay constrained until explicit production policy approval. Same-origin web hosting is a deployment prerequisite. External gates remain visible, not bypassed.
 
 ## Execution Notes
-Engine branch codex/newsletter-campaigns at C:/Users/Diane/ShipGlows/shipglows-email-engine. Backend branch codex/newsletter-campaigns at C:/Users/Diane/ShipGlows/worktrees/commandglows-newsletter-campaigns, based on 3cb5d79. First reads: studio models/hooks, central api.ts, email.ts, emailSchema.ts, admin/licenses.ts. Design authority: NewsletterStudioStyle/Colors and host PreviewTheme. Existing review-before-send convention is retained; source selection is supplementary to campaign creation.
+Engine branch codex/newsletter-campaigns at C:/Users/Diane/ShipGlows/email-engine. Backend branch codex/newsletter-campaigns at C:/Users/Diane/ShipGlows/worktrees/commandglows-newsletter-campaigns, based on 3cb5d79. First reads: studio models/hooks, central api.ts, email.ts, emailSchema.ts, admin/licenses.ts. Design authority: NewsletterStudioStyle/Colors and host PreviewTheme. Existing review-before-send convention is retained; source selection is supplementary to campaign creation.
 
 ## Execution Batches
 Ready non-overlapping parallel batch: backend agent owns CommandGlows convex/email*, central campaign server modules, admin email routes and backend tests/docs. UI agent owns newsletter package lib/test/README only. Integrator owns engine app/demo/CI/root docs/spec and CommandGlows dashboard host page. Shared API contract is agreed before adapter writes. Integrator reviews all changes and owns final tests/delivery.
