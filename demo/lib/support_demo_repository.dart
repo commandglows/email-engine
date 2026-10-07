@@ -56,8 +56,9 @@ class DemoSupportRepository implements SupportRepository {
       );
   @override
   Future<SupportThread> thread(String mailboxId, String threadId) async {
-    final item = (await threads(mailboxId)).items
-        .firstWhere((t) => t.id == threadId);
+    final item = (await threads(
+      mailboxId,
+    )).items.firstWhere((t) => t.id == threadId);
     return SupportThread(
       id: item.id,
       subject: item.subject,
