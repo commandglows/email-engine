@@ -5,6 +5,7 @@ import 'package:source_sidebar_flutter/source_sidebar_flutter.dart';
 import 'preview_theme.dart';
 import 'campaign_demo_repository.dart';
 import 'support_demo_repository.dart';
+import 'dispatch_demo_repository.dart';
 
 void main() => runApp(const SourceSidebarPreviewApp());
 
@@ -90,6 +91,7 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
   late final _campaigns = widget.campaigns ?? CampaignDemoRepository();
   bool _fromCampaigns = false;
   final _support = DemoSupportRepository();
+  final _dispatch = DemoDispatchRepository();
   final Map<String, SupportThread> _supportThreads = {};
   final Map<String, NewsletterCampaign> _campaignItems = {};
   final Map<String, String> _sections = {};
@@ -254,6 +256,16 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const Text('Démonstration synthétique · aucun dispatch réel.'),
+          DispatchPanel(
+            key: ValueKey(
+              'dispatch-demo/${thread.id}/${thread.latestMessageId}',
+            ),
+            repository: _dispatch,
+            mailboxId: 'demo',
+            threadId: thread.id,
+            messageId: thread.latestMessageId,
+          ),
           Wrap(
             spacing: 8,
             children: [

@@ -1,10 +1,33 @@
 import 'package:flutter/material.dart';
 import 'email_cockpit_tokens.dart';
 import 'support_models.dart';
+import 'dispatch_models.dart';
+import 'dispatch_panel.dart';
 
 class SupportWorkspace extends StatefulWidget {
-  const SupportWorkspace({super.key, required this.repository, this.onConnect});
+  const SupportWorkspace({
+    super.key,
+    required this.repository,
+    this.onConnect,
+    this.dispatchRepository,
+    this.mailboxReadOnly = false,
+    this.userMailboxMode = false,
+    this.oauthReturnOrigin,
+    this.onAnalyzeThread,
+  });
   final SupportRepository repository;
+  final DispatchRepository? dispatchRepository;
+
+  /// Embedded session bridges allow reading and human dispatch only.
+  final bool mailboxReadOnly;
+  final bool userMailboxMode;
+  final String? oauthReturnOrigin;
+  final Future<DispatchAnalysis> Function(
+    SupportThread thread,
+    List<DispatchDestination> destinations,
+    String mailboxId,
+  )?
+  onAnalyzeThread;
   final Future<void> Function(Uri)? onConnect;
   @override
   State<SupportWorkspace> createState() => _SupportWorkspaceState();
@@ -95,7 +118,9 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
         _cursor = page.nextCursor;
         _loading = false;
       });
-      await _loadObservability(mailbox.id);
+      if (!widget.mailboxReadOnly && !widget.userMailboxMode) {
+        await _loadObservability(mailbox.id);
+      }
     } catch (error) {
       if (mounted && generation == _generation) {
         setState(() {
@@ -170,6 +195,58 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
               'Terminez la reconnexion Google, puis actualisez Gmail.',
         );
       }
+    });
+  }
+
+  Future<void> _addMailbox() async {
+    if (widget.onConnect == null) return;
+    await _operation(() async {
+      final uri = await widget.repository.addMailbox(
+        returnOrigin: widget.oauthReturnOrigin,
+      );
+      await widget.onConnect!(uri);
+      if (mounted) {
+        setState(
+          () => _notice =
+              'Terminez la connexion Google, puis actualisez les boîtes.',
+        );
+      }
+    });
+  }
+
+  Future<void> _trashThread(SupportThread thread) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer cette conversation ?'),
+        content: const Text(
+          'Gmail déplacera cette conversation dans la corbeille. Cette action ne sera jamais déclenchée par le dispatch.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mettre à la corbeille'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || _mailbox == null) return;
+    await _operation(() async {
+      await widget.repository.trashThread(
+        _mailbox!.id,
+        thread.id,
+        expectedMessageId: thread.latestMessageId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _items.removeWhere((item) => item.id == thread.id);
+        _thread = null;
+        _notice = 'Conversation déplacée dans la corbeille Gmail.';
+      });
     });
   }
 
@@ -458,6 +535,13 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                   ),
                 ),
               IconButton(
+                tooltip: 'Ajouter une boîte Gmail',
+                onPressed: _busy || !widget.userMailboxMode
+                    ? null
+                    : _addMailbox,
+                icon: const Icon(Icons.add),
+              ),
+              IconButton(
                 tooltip: 'Actualiser les boîtes',
                 onPressed: _busy || _loading ? null : _loadContext,
                 icon: const Icon(Icons.refresh),
@@ -466,7 +550,9 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
           ),
         ),
         if (_error != null) _banner(_error!, error: true),
-        if (_needsReconnect || mailbox?.reconnectRequired == true)
+        if (!widget.mailboxReadOnly &&
+            !widget.userMailboxMode &&
+            (_needsReconnect || mailbox?.reconnectRequired == true))
           Align(
             alignment: Alignment.centerLeft,
             child: Padding(
@@ -483,11 +569,17 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             ),
           ),
         if (_notice != null) _banner(_notice!),
-        if (mailbox?.connected == true && mailbox?.canModify != true)
+        if (!widget.mailboxReadOnly &&
+            !widget.userMailboxMode &&
+            mailbox?.connected == true &&
+            mailbox?.canModify != true)
           _banner(
             'Cette connexion Gmail est en lecture seule. Les changements Gmail sont désactivés jusqu’à la reconnexion avec l’autorisation requise.',
           ),
-        if (mailbox?.connected == true) _observabilityPanel(),
+        if (!widget.mailboxReadOnly &&
+            !widget.userMailboxMode &&
+            mailbox?.connected == true)
+          _observabilityPanel(),
         if (_busy) const LinearProgressIndicator(),
         Expanded(
           child: _loading
@@ -505,9 +597,26 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                   'La connexion sécurisée à vos propres boîtes Gmail doit être configurée sur le serveur.',
                 )
               : mailbox == null
-              ? _empty(
-                  'Aucune boîte autorisée',
-                  'Ajoutez vos propres boîtes à la configuration du service client.',
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _empty(
+                      widget.userMailboxMode
+                          ? 'Aucune boîte connectée'
+                          : 'Aucune boîte autorisée',
+                      widget.userMailboxMode
+                          ? 'Connectez une boîte Gmail privée à votre compte.'
+                          : 'Ajoutez vos propres boîtes à la configuration du service client.',
+                    ),
+                    if (widget.userMailboxMode)
+                      FilledButton.icon(
+                        onPressed: _busy || widget.onConnect == null
+                            ? null
+                            : _addMailbox,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Ajouter une boîte Gmail'),
+                      ),
+                  ],
                 )
               : !mailbox.connected
               ? Center(
@@ -516,23 +625,24 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                     children: [
                       const Text('Cette boîte Gmail n’est pas connectée.'),
                       const SizedBox(height: EmailCockpitLayout.gap),
-                      FilledButton(
-                        onPressed: _busy || widget.onConnect == null
-                            ? null
-                            : () => _operation(() async {
-                                final uri = await widget.repository.connect(
-                                  mailbox.id,
-                                );
-                                await widget.onConnect!(uri);
-                                if (mounted) {
-                                  setState(
-                                    () => _notice =
-                                        'Terminez la connexion Google, puis actualisez les boîtes.',
+                      if (!widget.mailboxReadOnly || widget.userMailboxMode)
+                        FilledButton(
+                          onPressed: _busy || widget.onConnect == null
+                              ? null
+                              : () => _operation(() async {
+                                  final uri = await widget.repository.connect(
+                                    mailbox.id,
                                   );
-                                }
-                              }),
-                        child: const Text('Connecter Gmail'),
-                      ),
+                                  await widget.onConnect!(uri);
+                                  if (mounted) {
+                                    setState(
+                                      () => _notice =
+                                          'Terminez la connexion Google, puis actualisez les boîtes.',
+                                    );
+                                  }
+                                }),
+                          child: const Text('Connecter Gmail'),
+                        ),
                     ],
                   ),
                 )
@@ -701,6 +811,23 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             ),
           ),
         Text(thread.subject, style: Theme.of(context).textTheme.headlineSmall),
+        if (widget.dispatchRepository != null)
+          DispatchPanel(
+            key: ValueKey(
+              'dispatch/${_mailbox!.id}/${thread.id}/${thread.latestMessageId}',
+            ),
+            repository: widget.dispatchRepository!,
+            mailboxId: _mailbox!.id,
+            threadId: thread.id,
+            messageId: thread.latestMessageId,
+            analyze: widget.onAnalyzeThread == null
+                ? null
+                : (destinations) => widget.onAnalyzeThread!(
+                    thread,
+                    destinations,
+                    _mailbox!.id,
+                  ),
+          ),
         const SizedBox(height: EmailCockpitLayout.smallGap),
         Wrap(
           spacing: EmailCockpitLayout.smallGap,
@@ -724,42 +851,52 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                     : 'Dans la boîte de réception Gmail',
               ),
             ),
-            OutlinedButton.icon(
-              onPressed:
-                  _busy ||
-                      _mailbox?.canModify != true ||
-                      thread.isUnread == null
-                  ? null
-                  : () => _setGmailMetadata(unread: !thread.isUnread!),
-              icon: Icon(
-                thread.isUnread == true
-                    ? Icons.mark_email_read_outlined
-                    : Icons.mark_email_unread_outlined,
+            if (!widget.mailboxReadOnly || widget.userMailboxMode) ...[
+              OutlinedButton.icon(
+                onPressed:
+                    _busy ||
+                        _mailbox?.canModify != true ||
+                        thread.isUnread == null
+                    ? null
+                    : () => _setGmailMetadata(unread: !thread.isUnread!),
+                icon: Icon(
+                  thread.isUnread == true
+                      ? Icons.mark_email_read_outlined
+                      : Icons.mark_email_unread_outlined,
+                ),
+                label: Text(
+                  thread.isUnread == true
+                      ? 'Marquer comme lu'
+                      : 'Marquer comme non lu',
+                ),
               ),
-              label: Text(
-                thread.isUnread == true
-                    ? 'Marquer comme lu'
-                    : 'Marquer comme non lu',
+              if (widget.userMailboxMode)
+                OutlinedButton.icon(
+                  onPressed: _busy || _mailbox?.canModify != true
+                      ? null
+                      : () => _trashThread(thread),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Supprimer'),
+                ),
+              OutlinedButton.icon(
+                onPressed:
+                    _busy ||
+                        _mailbox?.canModify != true ||
+                        thread.isArchived == null
+                    ? null
+                    : () => _setGmailMetadata(archived: !thread.isArchived!),
+                icon: Icon(
+                  thread.isArchived == true
+                      ? Icons.unarchive_outlined
+                      : Icons.archive_outlined,
+                ),
+                label: Text(
+                  thread.isArchived == true
+                      ? 'Restaurer dans la boîte'
+                      : 'Archiver dans Gmail',
+                ),
               ),
-            ),
-            OutlinedButton.icon(
-              onPressed:
-                  _busy ||
-                      _mailbox?.canModify != true ||
-                      thread.isArchived == null
-                  ? null
-                  : () => _setGmailMetadata(archived: !thread.isArchived!),
-              icon: Icon(
-                thread.isArchived == true
-                    ? Icons.unarchive_outlined
-                    : Icons.archive_outlined,
-              ),
-              label: Text(
-                thread.isArchived == true
-                    ? 'Restaurer dans la boîte'
-                    : 'Archiver dans Gmail',
-              ),
-            ),
+            ],
             if (thread.isUnread == null ||
                 thread.isArchived == null ||
                 _needsMetadataRefresh)
@@ -783,53 +920,55 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
               ),
           ],
         ),
-        const SizedBox(height: EmailCockpitLayout.mediumGap),
-        Wrap(
-          spacing: EmailCockpitLayout.smallGap,
-          runSpacing: EmailCockpitLayout.smallGap,
-          children: SupportStatus.values
-              .map(
-                (status) => ChoiceChip(
-                  label: Text(status.label),
-                  selected: thread.status == status,
-                  onSelected: _busy
-                      ? null
-                      : (_) => _operation(() async {
-                          await widget.repository.setStatus(
-                            _mailbox!.id,
-                            thread.id,
-                            status,
-                          );
-                          final refreshed = await widget.repository.thread(
-                            _mailbox!.id,
-                            thread.id,
-                          );
-                          if (mounted) {
-                            setState(() {
-                              _thread = refreshed;
-                              final index = _items.indexWhere(
-                                (t) => t.id == thread.id,
-                              );
-                              if (index >= 0) {
-                                final old = _items[index];
-                                _items[index] = SupportThreadSummary(
-                                  id: old.id,
-                                  subject: old.subject,
-                                  from: old.from,
-                                  snippet: old.snippet,
-                                  status: refreshed.status,
-                                  updatedAt: old.updatedAt,
-                                  isUnread: old.isUnread,
-                                  isArchived: old.isArchived,
+        if (!widget.userMailboxMode)
+          const SizedBox(height: EmailCockpitLayout.mediumGap),
+        if (!widget.userMailboxMode)
+          Wrap(
+            spacing: EmailCockpitLayout.smallGap,
+            runSpacing: EmailCockpitLayout.smallGap,
+            children: SupportStatus.values
+                .map(
+                  (status) => ChoiceChip(
+                    label: Text(status.label),
+                    selected: thread.status == status,
+                    onSelected: _busy || widget.mailboxReadOnly
+                        ? null
+                        : (_) => _operation(() async {
+                            await widget.repository.setStatus(
+                              _mailbox!.id,
+                              thread.id,
+                              status,
+                            );
+                            final refreshed = await widget.repository.thread(
+                              _mailbox!.id,
+                              thread.id,
+                            );
+                            if (mounted) {
+                              setState(() {
+                                _thread = refreshed;
+                                final index = _items.indexWhere(
+                                  (t) => t.id == thread.id,
                                 );
-                              }
-                            });
-                          }
-                        }),
-                ),
-              )
-              .toList(),
-        ),
+                                if (index >= 0) {
+                                  final old = _items[index];
+                                  _items[index] = SupportThreadSummary(
+                                    id: old.id,
+                                    subject: old.subject,
+                                    from: old.from,
+                                    snippet: old.snippet,
+                                    status: refreshed.status,
+                                    updatedAt: old.updatedAt,
+                                    isUnread: old.isUnread,
+                                    isArchived: old.isArchived,
+                                  );
+                                }
+                              });
+                            }
+                          }),
+                  ),
+                )
+                .toList(),
+          ),
         for (final message in thread.messages)
           Card(
             margin: const EdgeInsets.only(top: EmailCockpitLayout.gap),
@@ -855,72 +994,75 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
               ),
             ),
           ),
-        const SizedBox(height: EmailCockpitLayout.detailGap),
-        Text(
-          'Réponse via Gmail',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: EmailCockpitLayout.smallGap),
-        if (thread.replyTo != null)
-          SelectableText('Adresse de routage : ${thread.replyTo}'),
-        const Text(
-          'Pour un email relayé, le routage Mutant Mail doit être conservé. L’adresse Gmail ne doit pas remplacer votre alias de domaine.',
-        ),
-        if (!thread.canReply || !_context!.canReply)
-          Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: EmailCockpitLayout.mediumGap,
+        if (!widget.mailboxReadOnly && !widget.userMailboxMode) ...[
+          const SizedBox(height: EmailCockpitLayout.detailGap),
+          Text(
+            'Réponse via Gmail',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: EmailCockpitLayout.smallGap),
+          if (thread.replyTo != null)
+            SelectableText('Adresse de routage : ${thread.replyTo}'),
+          const Text(
+            'Pour un email relayé, le routage Mutant Mail doit être conservé. L’adresse Gmail ne doit pas remplacer votre alias de domaine.',
+          ),
+          if (!thread.canReply || !_context!.canReply)
+            Padding(
+              padding: EdgeInsets.symmetric(
+                vertical: EmailCockpitLayout.mediumGap,
+              ),
+              child: Text(switch (thread.replyDisabledReason) {
+                'reply_delivery_unknown' =>
+                  'Un envoi précédent a un résultat incertain. Vérifiez les messages envoyés dans Gmail.',
+                'reply_already_submitted' =>
+                  'Une réponse a déjà été transmise pour ce message.',
+                'relay_not_verified' =>
+                  'Le routage du relais doit être vérifié avant de répondre.',
+                'synthetic_demo' =>
+                  'Démonstration : aucun email ne peut être envoyé.',
+                _ =>
+                  'Les réponses ne sont pas activées pour cette conversation.',
+              }),
             ),
-            child: Text(switch (thread.replyDisabledReason) {
-              'reply_delivery_unknown' =>
-                'Un envoi précédent a un résultat incertain. Vérifiez les messages envoyés dans Gmail.',
-              'reply_already_submitted' =>
-                'Une réponse a déjà été transmise pour ce message.',
-              'relay_not_verified' =>
-                'Le routage du relais doit être vérifié avant de répondre.',
-              'synthetic_demo' =>
-                'Démonstration : aucun email ne peut être envoyé.',
-              _ => 'Les réponses ne sont pas activées pour cette conversation.',
-            }),
-          ),
-        if (blocked)
-          const Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: EmailCockpitLayout.mediumGap,
+          if (blocked)
+            const Padding(
+              padding: EdgeInsets.symmetric(
+                vertical: EmailCockpitLayout.mediumGap,
+              ),
+              child: Text(
+                'Nouvel envoi bloqué pour éviter un doublon. Vérifiez cette conversation dans Gmail.',
+              ),
             ),
-            child: Text(
-              'Nouvel envoi bloqué pour éviter un doublon. Vérifiez cette conversation dans Gmail.',
+          const SizedBox(height: EmailCockpitLayout.mediumGap),
+          TextField(
+            controller: _reply,
+            minLines: 4,
+            maxLines: 12,
+            maxLength: 20000,
+            enabled: !_busy && !blocked,
+            decoration: const InputDecoration(
+              labelText: 'Votre réponse',
+              helperText: 'Brouillon conservé dans cette session.',
+            ),
+            onChanged: (text) => setState(() => _drafts[_key] = text),
+          ),
+          const SizedBox(height: EmailCockpitLayout.mediumGap),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed:
+                  _busy ||
+                      blocked ||
+                      !thread.canReply ||
+                      !_context!.canReply ||
+                      _reply.text.trim().isEmpty
+                  ? null
+                  : _send,
+              icon: const Icon(Icons.send_outlined),
+              label: const Text('Relire et envoyer'),
             ),
           ),
-        const SizedBox(height: EmailCockpitLayout.mediumGap),
-        TextField(
-          controller: _reply,
-          minLines: 4,
-          maxLines: 12,
-          maxLength: 20000,
-          enabled: !_busy && !blocked,
-          decoration: const InputDecoration(
-            labelText: 'Votre réponse',
-            helperText: 'Brouillon conservé dans cette session.',
-          ),
-          onChanged: (text) => setState(() => _drafts[_key] = text),
-        ),
-        const SizedBox(height: EmailCockpitLayout.mediumGap),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton.icon(
-            onPressed:
-                _busy ||
-                    blocked ||
-                    !thread.canReply ||
-                    !_context!.canReply ||
-                    _reply.text.trim().isEmpty
-                ? null
-                : _send,
-            icon: const Icon(Icons.send_outlined),
-            label: const Text('Relire et envoyer'),
-          ),
-        ),
+        ],
       ],
     );
   }

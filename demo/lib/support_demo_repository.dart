@@ -25,6 +25,19 @@ class DemoSupportRepository implements SupportRepository {
     'Cette démonstration ne connecte aucune boîte Gmail.',
   );
   @override
+  Future<Uri> addMailbox({String? returnOrigin}) async =>
+      throw const SupportException(
+        'Cette démonstration ne connecte aucune boîte Gmail.',
+      );
+  @override
+  Future<void> trashThread(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+  }) async => throw const SupportException(
+    'La suppression Gmail est indisponible dans la démonstration.',
+  );
+  @override
   Future<SupportPage> threads(String mailboxId, {String? cursor}) async =>
       SupportPage(
         items: List.generate(

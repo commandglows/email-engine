@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:shipglows:email-dispatch-source-analysis:1",
+  "title": "Inert source suggestions for human review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_key", "source_revision", "summary", "candidates", "risks", "provenance"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source_key": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "source_revision": {"type": "string", "minLength": 1, "maxLength": 100},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S"},
+    "risks": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 500}},
+    "candidates": {"type": "array", "maxItems": 5, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["destination_id", "contribution_type", "justification", "confidence", "risks"],
+      "properties": {
+        "destination_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,100}$"},
+        "contribution_type": {"enum": ["newsletter_inspiration", "thematic_source", "potential_task", "other"]},
+        "justification": {"type": "string", "maxLength": 2000},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "risks": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 500}}
+      }
+    }},
+    "provenance": {"type": "object", "additionalProperties": false,
+      "required": ["provider", "model", "analyzed_at"], "properties": {
+        "provider": {"type": "string", "minLength": 1, "maxLength": 100},
+        "model": {"type": "string", "minLength": 1, "maxLength": 100},
+        "analyzed_at": {"type": "string", "format": "date-time"}
+      }}
+  }
+}

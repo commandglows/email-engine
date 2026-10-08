@@ -53,7 +53,7 @@ next_step: "Complete focused backend and Flutter test/typecheck proof before mar
    event storage, focused tests, and CommandGlows Gmail support contract. Owner:
    backend observability agent; Gmail metadata mutations and read/summary hooks
    are included in this batch.
-2. `shipglows-email-engine/app/**` and only required presentation-package API
+2. `email-engine/app/**` and only required presentation-package API
    additions, tests, UI and docs. Owner: app agent. Consume the backend HTTP
    contract agreed before integration; no edits in CommandGlows.
 

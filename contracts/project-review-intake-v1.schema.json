@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:shipglows:project-review-intake:1",
+  "title": "Human approved private contribution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["client_intake_id", "source_key", "summary", "contribution_type"],
+  "properties": {
+    "client_intake_id": {"type": "string", "format": "uuid"},
+    "source_key": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S"},
+    "contribution_type": {"enum": ["newsletter_inspiration", "thematic_source", "potential_task", "other"]},
+    "justification": {"type": "string", "maxLength": 2000, "default": ""},
+    "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "default": null},
+    "risks": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 500}, "default": []}
+  }
+}

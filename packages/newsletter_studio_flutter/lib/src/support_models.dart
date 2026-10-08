@@ -192,6 +192,12 @@ enum SupportReplyResult { submitted, unknown }
 abstract class SupportRepository {
   Future<SupportContext> context();
   Future<Uri> connect(String mailboxId);
+  Future<Uri> addMailbox({String? returnOrigin});
+  Future<void> trashThread(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+  });
   Future<SupportPage> threads(String mailboxId, {String? cursor});
   Future<SupportThread> thread(String mailboxId, String threadId);
   Future<SupportThread> setGmailMetadata(

@@ -19,12 +19,22 @@ class FakeSupportRepository implements SupportRepository {
         id: 'own',
         email: 'moi@example.test',
         connected: connected,
+        canModify: true,
       ),
     ],
   );
   @override
   Future<Uri> connect(String mailboxId) async =>
       Uri.parse('https://accounts.google.com/o/oauth2/v2/auth');
+  @override
+  Future<Uri> addMailbox({String? returnOrigin}) async =>
+      Uri.parse('https://accounts.google.com/o/oauth2/v2/auth');
+  @override
+  Future<void> trashThread(
+    String mailboxId,
+    String threadId, {
+    required String expectedMessageId,
+  }) async {}
   @override
   Future<SupportPage> threads(String mailboxId, {String? cursor}) async =>
       SupportPage(
@@ -130,7 +140,16 @@ Future<void> openThread(WidgetTester tester, FakeSupportRepository repo) async {
 }
 
 Future<void> compose(WidgetTester tester) async {
-  await tester.ensureVisible(find.widgetWithText(TextField, 'Votre réponse'));
+  await tester.scrollUntilVisible(
+    find.widgetWithText(TextField, 'Votre réponse'),
+    240,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const ValueKey('support-detail-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
   await tester.enterText(
     find.widgetWithText(TextField, 'Votre réponse'),
     'Bonjour Camille, voici votre accès.',
@@ -185,7 +204,10 @@ void main() {
             textScaler: TextScaler.linear(2),
           ),
           child: Scaffold(
-            body: SupportWorkspace(repository: FakeSupportRepository()),
+            body: SupportWorkspace(
+              repository: FakeSupportRepository(),
+              userMailboxMode: true,
+            ),
           ),
         ),
       ),
@@ -262,7 +284,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final repo = FakeSupportRepository();
     await openThread(tester, repo);
-    await tester.ensureVisible(find.widgetWithText(TextField, 'Votre réponse'));
+    await tester.scrollUntilVisible(
+      find.widgetWithText(TextField, 'Votre réponse'),
+      240,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('support-detail-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.enterText(
       find.widgetWithText(TextField, 'Votre réponse'),
       'Brouillon mobile',
@@ -276,7 +307,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Besoin d’aide'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.widgetWithText(TextField, 'Votre réponse'));
+    await tester.scrollUntilVisible(
+      find.widgetWithText(TextField, 'Votre réponse'),
+      240,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('support-detail-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     expect(find.text('Brouillon mobile'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'central_email_api.dart';
 import 'campaign_repository.dart';
 import 'support_repository.dart';
+import 'dispatch_repository.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'support_reader.dart';
@@ -28,6 +29,7 @@ class ReaderSourceWorkspace extends StatefulWidget {
 
 class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
   late final _support = CentralSupportRepository(widget.api);
+  late final _dispatch = CentralDispatchRepository(widget.api);
   final _items = <String, SourceSidebarItem>{};
   final _sections = <String, String>{};
   final _sources = <String, String>{};
@@ -679,9 +681,19 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     final allowed =
         thread.canReply && _supportContext?.canReply == true && !locked;
     final replyAll = _replyAll[id] == true;
+    final (mailbox, original) = _threads[id]!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        DispatchPanel(
+          key: ValueKey(
+            'dispatch/$mailbox/$original/${thread.latestMessageId}',
+          ),
+          repository: _dispatch,
+          mailboxId: mailbox,
+          threadId: original,
+          messageId: thread.latestMessageId,
+        ),
         Wrap(
           spacing: _style.gapSmall,
           children: SupportStatus.values

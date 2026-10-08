@@ -131,3 +131,32 @@ TypeScript check was started under CommandGlows Doppler but did not finish befor
 it was stopped. CI also checks the web artifact. Local analysis and fixture
 captures do not prove hosted login, Gmail OAuth, live mailbox mutations, real
 delivery, or inbox rendering.
+
+## Human project dispatch (integration prepared, activation pending)
+
+The Gmail reader now includes a private dispatch panel: prepare the factual
+summary/type/reason/confidence/risks, select multiple available projects, inspect
+the final transmitted contribution, then explicitly confirm. No email body is
+copied automatically. AI processing remains unavailable pending the separately
+approved provider/data policy. Project grants/connections remain unconfigured.
+
+`CentralDispatchRepository` uses dedicated same-origin CommandGlows routes. The
+server retains the authorized decision before attempting project intake and
+returns one receipt per destination. Unknown or partial results lock a fresh
+proposal until reconciliation; recovery reuses the original opaque identity and
+preserves accepted destinations. Private contribution text is kept in the
+central/project stores, not client persistent storage. The synthetic demo has
+separate fake destinations and simulates lost receipts; it never calls Gmail or
+project services.
+
+Contract and remaining activation/privacy evidence:
+`shipglows_data/workflow/specs/human-project-dispatch.md`, `contracts/` and each
+destination's dedicated project-review-intake documentation. Local tests do not
+prove hosted login, project authorization or real dispatch. None has yet occurred.
+The operator subsequently requested actual local/cloud use inside ContentGlows
+and ShipGlows.app. Both now embed the shared mailbox UI through a verified bearer
+bridge. Their private project queues and durable server connection checks are
+implemented locally. Gmail OAuth/mailbox configuration, connection grants, hosted
+privacy checks and deployment remain to be completed. ContentGlows additionally
+has opt-in transient BYOK pre-triage; ShipGlows.app has no authorized shared AI
+connection yet. See the owning spec for the current scope and evidence.

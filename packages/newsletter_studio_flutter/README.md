@@ -147,3 +147,28 @@ state, a metadata mutation, and bounded incoming observability. Null provider
 state remains unknown. Observability models keep window counts, sampled hashed
 IDs, freshness, and redacted failure metadata distinct so the UI does not infer
 totals from an incomplete sample.
+# Private project dispatch
+
+`DispatchRepository` is separate from `SupportRepository`. Pass it through the
+optional `SupportWorkspace.dispatchRepository`, or embed `DispatchPanel` in an
+email reader with an explicit mailbox, thread and current message identifier.
+The authenticated app uses `CentralDispatchRepository`; the demo uses synthetic
+in-memory destinations and receipts with no network operations.
+
+The editor starts empty. AI analysis is unavailable unless the host provides an
+authorized analysis callback. Its consent dialog discloses email text and project
+context transmission to the configured provider. Suggestions remain transient;
+an explicit Use action populates editable fields and never confirms dispatch.
+Stale message revisions and unauthorized candidate IDs are refused.
+No email body is copied
+into the proposal. The operator selects projects and reviews the exact summary,
+contribution type, justification, confidence and risks before confirming their
+private persistence. Preview and cancellation do not invoke the repository.
+
+An uncertain operation retains its opaque dispatch identity within the current
+repository session. Reopening a thread loads server history. Pending, failed and
+unknown destination receipts lock new proposals until explicit recovery resolves
+the existing operation; accepted destination receipts remain visible. No email
+forwarding, Gmail metadata action, content generation or publication is part of
+dispatch. Server identity, privacy policy and project authorization remain
+activation requirements.
