@@ -1349,10 +1349,19 @@ class _TopBar extends StatelessWidget {
                   children: [
                     Expanded(child: identity),
                     refresh,
-                    ...actions,
                   ],
                 ),
               ),
+              if (actions.isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: style.gapSmall,
+                    runSpacing: style.gapSmall,
+                    children: actions,
+                  ),
+                ),
               Padding(
                 padding: EdgeInsets.only(bottom: style.gapMedium),
                 child: search,
