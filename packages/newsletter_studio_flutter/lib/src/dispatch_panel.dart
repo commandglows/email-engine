@@ -54,7 +54,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
       builder: (context) => AlertDialog(
         title: const Text('Autoriser le pré-triage IA'),
         content: const Text(
-              'Le texte de cet email et le nom ou la description des projets candidats seront transmis au fournisseur IA configuré dans votre compte. '
+          'Le texte de cet email et le nom ou la description des projets candidats seront transmis au fournisseur IA configuré dans votre compte. '
           'Ses règles de conservation s’appliquent. Les suggestions restent privées et aucun projet ne recevra de contribution avant votre confirmation.',
         ),
         actions: [
