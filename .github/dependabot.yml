@@ -1,0 +1,28 @@
+version: 2
+# Mensuel + groupe : 1 PR par ecosysteme et par mois (les alertes securite restent immediates).
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    groups:
+      github_actions_all:
+        patterns:
+          - "*"
+  - package-ecosystem: "pub"
+    directories:
+      - "/app"
+      - "/demo"
+      - "/packages/email_mailbox_client"
+      - "/packages/newsletter_studio_flutter"
+      - "/packages/shipglows_flutter_zoom"
+      - "/packages/source_sidebar_flutter"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    groups:
+      pub_all:
+        patterns:
+          - "*"
