@@ -3,5 +3,14 @@
   "framework": null,
   "installCommand": "echo 'Flutter dependencies are resolved by the build script.'",
   "buildCommand": "bash scripts/vercel-build.sh",
-  "outputDirectory": "demo/build/web"
+  "outputDirectory": "demo/build/web",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true
+    }
+  },
+  "github": {
+    "silent": true
+  }
 }
