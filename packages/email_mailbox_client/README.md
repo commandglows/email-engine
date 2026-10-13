@@ -17,3 +17,13 @@ from a reviewed sibling workspace. Reproducible CI must check out the exact
 reviewed sources at the declared paths and record both repository identities.
 No package publication is required; no unpublished Git revision is assumed to
 be remotely available. Artifact compilation does not prove hosted activation.
+
+## Identity link
+
+`IdentityLinkRepository` implements `IdentityLinkGateway` over the bridge
+`identity/status`, `identity/link-code` and `identity/link-confirm` routes. It
+validates each response strictly (schema version 1, fingerprint format, code
+length 1 to 512, parseable expiry). Any invalid shape throws `EmailApiException`
+with code `invalid_response`. Pasted codes are trimmed, and empty or oversized
+codes are refused before any request. Requests use the same per-request user
+bearer and idempotency handling as the other repositories.

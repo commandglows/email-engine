@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 
 typedef EmailAccessTokenProvider = Future<String?> Function();
 
@@ -197,8 +198,9 @@ class CentralEmailApi {
   }
 }
 
-class EmailApiException implements Exception {
+class EmailApiException implements Exception, CodedFailure {
   const EmailApiException(this.code);
+  @override
   final String code;
   String get message => switch (code) {
     'auth_required' =>

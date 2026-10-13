@@ -172,3 +172,16 @@ the existing operation; accepted destination receipts remain visible. No email
 forwarding, Gmail metadata action, content generation or publication is part of
 dispatch. Server identity, privacy policy and project authorization remain
 activation requirements.
+
+# Identity link panel
+
+`IdentityLinkPanel(gateway:, providerLabel:, otherAppLabel:)` links this account
+to another app account with a one-time code. The panel depends only on the
+`IdentityLinkGateway` port, which the mailbox client implements. Codes expire
+after 5 minutes and pair once. The email address never proves identity.
+
+Confirming a code always opens an explicit dialog first; cancelling sends
+nothing and a double tap sends one request. Failures show French copy chosen
+from a stable `CodedFailure.code`, never raw error text. Linked accounts show
+the public fingerprint that must match in the other app. The panel does not log
+codes, and `IdentityLinkCode.toString()` omits the code.
