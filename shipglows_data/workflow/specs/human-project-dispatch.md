@@ -20,7 +20,7 @@ linked_systems: [CommandGlows, ContentGlows, ShipGlows]
 depends_on: []
 supersedes: []
 evidence: ["Operator approved the initial seven-step plan on 2026-10-07", "Operator confirmed per-user private mailbox connections shared across both apps, Gmail modify without send, and visible external AI consent on 2026-10-07"]
-next_step: Isolate and release the reviewed cross-app email/auth changes, configure server bridges and complete visible Google OAuth consent
+next_step: Complete hosted privacy evidence, verify linked identities and destination grants, configure host integrations, then complete visible Google OAuth consent
 ---
 
 # Human project dispatch
@@ -447,3 +447,251 @@ ShipGlows.app checkout have not been shipped. The GitHub push also surfaced thre
 high and one moderate Dependabot alerts in the default branch lockfile; scope and
 reachability are under review. No email, OAuth code, AI provider call or dispatch
 was sent. The ShipGlows.app repository instructions prohibit worktrees.
+
+## Resumption evidence — 2026-10-11
+
+This read-only refresh supersedes the delivery and checkout blockers in the
+2026-10-08 handoff. Activation remains incomplete.
+
+- CommandGlows PR #8, `feat: add private Gmail project dispatch`, was merged
+  on 2026-10-07 at 23:04:29 UTC. Its merge commit `5da8d507` is in the current
+  canonical `main` history. The previously reported PR-creation refusal is no
+  longer the delivery blocker; no alternate delivery was attempted in this run.
+  Review: https://github.com/commandglows/commandglows/pull/8.
+- Public requests without OAuth parameters return 308 from the apex callback
+  to `www`, then 400 from the `www` callback, replacing the historical 404.
+  This proves route availability only, not consent, token storage, identity
+  linking or Gmail access. No OAuth start or consent was performed in this run.
+- CommandGlows Doppler `dev` now contains `EMAIL_OPERATOR_CREDENTIAL` and
+  `EMAIL_CONVEX_URL`. An in-memory comparison confirms those values and
+  `EMAIL_SUPPORT_TOKEN_KEY` differ from `prd`; no secret values were displayed
+  or written to files. Distinct settings do not prove backend connectivity.
+- The Vercel production environment-name inventory still lacks
+  `EMAIL_PROJECT_DESTINATIONS`, `EMAIL_PROJECT_DISPATCH_ENABLED`,
+  `EMAIL_PRIVATE_DATA_TELEMETRY_VERIFIED`,
+  `CONTENTGLOWS_EMAIL_TRIAGE_BRIDGE_URL` and `EMAIL_TRIAGE_BRIDGE_TOKEN`.
+  `SENTRY_DSN` remains present. No environment settings were changed.
+- Authenticated read-only Vercel `/v1/drains` and `/v1/log-drains` inventories
+  for the selected team both return zero configured drains. This does not prove
+  internal request-log filtering, Sentry behavior, database backups or provider
+  retention. The dispatch and triage privacy gates must remain closed.
+- Both shared-engine local paths resolve to `main` at `9da9dcd`; the existing
+  `source_sidebar.dart` modification was preserved. CommandGlows and
+  ContentGlows canonical checkouts are clean at `0118fd0b` and `569bc262`.
+  ShipGlows.app is at `shipglows_app`, on
+  `codex/reconcile-mailbox-cockpit` at `a988ce9`, with its `TODO.md` edit
+  preserved. The historical temporary CommandGlows release checkout and
+  ContentGlows release path from the handoff are absent.
+- Current ShipGlows.app source already contains the linked ContentGlows BYOK
+  bridge integration; its hosted URL/token and live behavior remain unproven.
+  This run did not read real mail, call an AI provider, mutate Gmail, dispatch
+  a contribution, run builds/tests, or deploy anything.
+
+Remaining acceptance: hosted logs/traces/backups and provider retention evidence;
+verified canonical identity links; explicitly authorized destination projects and
+durable grants; exact shared-source CI/artifact identities and host configuration;
+visible Google consent with Diane; authenticated mailbox and private-queue proof.
+Actual dispatch still requires Diane's explicit selection of a message and its
+destinations. No review receipt may contain the raw email body.
+
+## Shared-source integration step — 2026-10-11
+
+Both host apps now pin their shared Flutter dependency checkout to the same
+reviewed email-engine commit `9da9dcd0fae749ab289c35871369d1b9a3ecf325`.
+Their setup scripts reject a different existing checkout without overwriting it.
+ContentGlows' dependency script also had Windows line endings that made Bash
+fail; those were normalized in that script only. Existing ContentGlows and
+ShipGlows.app local changes were preserved. These edits remain uncommitted and
+unpushed in their current checkouts.
+
+Proof under each app's own Doppler `dev` config: dependency setup and
+`flutter pub get --enforce-lockfile` pass for both apps; the ContentGlows private
+workspace tests pass (3), its mailbox-screen analysis is clean, ShipGlows.app's
+private review panel tests pass (2), and its mailbox-screen analysis is clean.
+The production CommandGlows bridge accepts CORS preflight for
+`https://app.shipglows.com` and `https://app.contentglows.com` (204); its
+Firebase and Auth0 connection-list routes return 401 without a session, as
+expected. These checks establish dependency resolution, source-level screens
+and route/origin availability, not authenticated owner linkage or Gmail access.
+
+Still open before Google consent: prove the current user sessions resolve to the
+same canonical global identity, and complete the app-specific hosted build
+configuration/release proof. Dispatch and AI triage remain gated on hosted
+privacy/retention proof. No app build, OAuth state, Gmail read, AI provider call
+or dispatch was created in this step.
+
+## Main-branch consolidation and hosting recheck — 2026-10-11
+
+- `shipglows-email-engine` has only the `main` worktree. Its email feature and
+  shared-client commits were already ancestors of `main`; redundant local email
+  branches and their clean linked worktree were removed. Existing local edits
+  in `source_sidebar.dart` and this specification remain untouched.
+- CommandGlows `main` is clean and synced with `origin/main`. The dispatch
+  implementation is already present through merged PR #8. No local feature
+  branch or extra worktree remains.
+- ContentGlows `main` now contains the prior exact engine-revision pin plus the
+  four commits from `origin/main`, through local merge commit `29d17038`. The
+  checkout is two commits ahead and was not pushed. ShipGlows.app remains on
+  synced `main`; its two unrelated local documentation edits remain untouched.
+- The CommandGlows Vercel project was paused. After the operator explicitly
+  authorized the metered-usage restart, the dashboard now reports it active and
+  shows `Pause Project`; the latest deployment is marked updated just now.
+  A no-parameter callback probe follows the apex redirect and returns 400 from
+  `www` (`redirects=1`), confirming route availability only. No OAuth flow was
+  started and no mailbox consent or access occurred.
+- The hosted privacy audit still lacks Sentry retention/scrubbing evidence,
+  Vercel internal request-log settings, Convex/Turso backup-retention proof, and
+  LLM-provider retention policy. The Vercel production registry/grants and
+  privacy attestation remain absent. Dispatch and triage must remain closed.
+- The authenticated Sentry organization settings show Enhanced Privacy,
+  required server-side scrubbing, required default scrubbers, and IP-address
+  scrubbing all disabled. Its visible project list has no CommandGlows project;
+  the production `SENTRY_DSN` project mapping and retention remain unverified.
+- The CommandGlows Vercel project has `Improve models with this project's data`
+  enabled in Data Preferences. Vercel describes this as sharing project code
+  and chat data for model training. This setting was observed only and was not
+  changed during the project-resume action.
+- The Vercel dashboard lists `contentglows_site`, `contentglows_app`, and
+  `shipglows-app` as paused. Only CommandGlows was resumed by explicit request;
+  these apps' production mailbox routes are not live proof.
+- CommandGlows production has the Gmail OAuth client, callback, origins,
+  operator credential, and Convex ledger configured by variable name. Project
+  destinations, static session grants, dispatch activation, privacy attestation,
+  and ContentGlows triage bridge are absent. Both app origins pass CORS preflight
+  (`204`), which does not verify Diane's Firebase/Auth0 identity link. No live
+  canonical identity or Gmail session was inspected.
+- The CommandGlows production Convex dashboard reports `Last backup: No backup
+  yet`; Backup & Restore has no existing backup and the schedule is `Never`
+  (marked PRO). No backup was created during this audit. Diane then signed into
+  Turso and the `contentflow-prod2` production database overview was inspected
+  without opening its data. The account shows the Free plan; its database page
+  exposes no backup schedule. Turso's official PITR documentation says commits
+  are backed up automatically and Free restores cover only the previous 24
+  hours. This establishes the documented plan retention, not deletion from all
+  replicas or proof about application logs. Two old timestamped snapshot
+  branches are visible but are not evidence of a current scheduled backup.
+  Doppler metadata-only inventory shows ContentGlows `prd` has the database URL
+  and auth token, with no Turso platform API token available for a settings
+  query.
+- OpenRouter's official [provider logging and retention documentation](https://openrouter.ai/docs/features/privacy-and-logging)
+  says provider logging/training policies vary and can be filtered by account
+  settings. The OpenRouter account page redirects to sign-in, so Diane's active
+  privacy filters and any chosen provider endpoint remain unverified. No model
+  request was sent.
+
+No Google OAuth, Gmail read, Gmail modification, external AI analysis, or real
+dispatch occurred. Account-link status and destination grants remain unverified.
+
+## Hosted privacy controls applied — 2026-10-12
+
+After Diane's explicit approval, Vercel Team Settings → General → Data
+Preferences was changed to disable `Improve models with my data`. The setting
+remained off after reload; Vercel's UI states team code and chat data will not
+be shared going forward for projects owned by this team.
+
+Sentry organization `diane-defores` Security & Privacy controls were enabled:
+Enhanced Privacy, Require Data Scrubber, Require Using Default Scrubbers, and
+Prevent Storing of IP Addresses. All four remained enabled after reload. The
+IP control applies to new events. This does not establish the production
+CommandGlows DSN's project mapping, event retention, backup retention, or any
+other internal logging path. Dispatch and AI triage remain gated until those
+remaining hosted data paths and the required identity/destination grants are
+verified.
+
+## Re-audit — 2026-10-12
+
+Read-only checks after the privacy controls were applied found:
+
+- The four Sentry controls above are enabled, but no CommandGlows project is
+  visible in the connected Sentry organization. The production `SENTRY_DSN`
+  mapping, event retention, and internal Vercel request-log retention remain
+  unverified. Vercel API and log drains are empty; this does not cover internal
+  Vercel logs.
+- CommandGlows Production Convex has no backup and its backup schedule is
+  `Never` (backup scheduling is marked PRO). No database content was opened.
+  Turso's current console does not expose a backup schedule; retention and
+  restore behavior for the ContentGlows database were not verified in the UI.
+- OpenRouter redirected to sign-in, so account privacy filters and provider
+  retention remain unverified. No model call was made.
+- No session-bound evidence proves that ContentGlows and ShipGlows.app resolve
+  to the same `globalUserId`. Their Vercel production configurations expose
+  different identity setups, and neither app's Doppler `dev` config contains
+  mailbox or triage variables.
+- CommandGlows production still lacks `EMAIL_PROJECT_DESTINATIONS`,
+  `EMAIL_PROJECT_DISPATCH_ENABLED`, `EMAIL_PRIVATE_DATA_TELEMETRY_VERIFIED`,
+  and the ContentGlows triage bridge. No destination grants were verified.
+  The latest Vercel deployments for the two apps display `UNKNOWN`, so their
+  current health is also unverified.
+
+Keep Gmail consent, external AI analysis, dispatch, and triage closed. The next
+safe identity check must be bound to the active app sessions, resolve Firebase
+and Auth0 identities through the trusted bridge, and return only a match
+boolean. Then configure development credentials and authorized destinations,
+and finish retention checks for Sentry, Vercel internal logs, Convex, Turso,
+and OpenRouter before opening any privacy gate.
+
+## OpenRouter privacy settings before approval — 2026-10-12
+
+Before the approved change below, the OpenRouter Personal account's Privacy page showed
+Zero Data Retention disabled for “All other models” and the provider-specific
+ZDR switches disabled. The account allowed paid endpoints that train on request
+data, free endpoints that train on request data, free endpoints that publish
+prompts, and the 1% data discount that lets workspaces separately consent to
+using inputs and outputs to improve the product. These values were observed in
+the UI; none were changed and no model request was made. Do not send email
+content through this provider until the protections below are confirmed in the
+account and app behavior.
+
+## OpenRouter privacy protections applied — 2026-10-12
+
+After Diane confirmed the change, the Personal account was configured to require
+Zero Data Retention endpoints for all other models and to disallow paid
+endpoints that train on request data, free endpoints that train on request
+data, free endpoints that publish prompts, and the 1% data discount that lets
+workspaces separately use inputs and outputs to improve the product. Both
+settings sections were saved and all five values remained set after a page
+reload. The eligibility preview changed from 634 available models to 481
+available and 153 unavailable. OpenRouter states that Zero Data Retention
+applies to provider routing, not plugins or tools. No model request was made.
+
+## Reprise hébergée et intégration — 2026-10-13
+
+Read-only production checks on 2026-10-13 found:
+
+- The CommandGlows Gmail OAuth callback redirects from the apex domain to
+  `www` and returns HTTP 400 with a generic no-store failure when called
+  without OAuth state. The route is deployed; this is not proof of consent,
+  token exchange, identity linkage, or Gmail access.
+- Vercel's metadata-only production environment-name inventory for CommandGlows
+  includes the mailbox client, redirect, allowed-origin, operator, and ledger
+  settings. It does not include `EMAIL_PROJECT_DESTINATIONS`,
+  `EMAIL_PROJECT_DISPATCH_ENABLED`,
+  `EMAIL_PRIVATE_DATA_TELEMETRY_VERIFIED`, or the ContentGlows triage bridge
+  URL/token. The ContentGlows and ShipGlows.app production inventories contain
+  no email mailbox or triage variables. Secret values were not displayed.
+- An initial Vercel deployment-list snapshot reported CommandGlows `READY` at
+  `88b27b810a1d268c7a4984b1940010f022e3db3e`, ContentGlows `BLOCKED` at
+  `982f913257dfad4961bce0d1a448f1a34e51d316`, and ShipGlows.app `BLOCKED` at
+  `a9ea8295f73a15bbf81b90614b939984b41f4223`. The project settings clarified
+  the live state: `contentglows_site` was paused. After Diane authorized its
+  resumption, Vercel changed the control to `Pause Project` and recorded the
+  update; no redeployment was triggered. `shipglows-app` already showed
+  `Pause Project`, so it was active and was not changed. Direct GET checks of
+  `https://contentglows.com/` and `https://app.shipglows.com/` now return HTTP
+  200. These checks establish root availability only, not authenticated app
+  sessions or identity linkage.
+- The two apps still pin the shared engine to
+  `9da9dcd0fae749ab289c35871369d1b9a3ecf325`. Comparing that revision with the
+  current engine `main` (`f7c0fb0386f22efe1660532ec58b67e3e86c611f`) shows no
+  changes within either consumed Flutter package, so the reviewed package
+  contents match despite the newer repository head.
+- The Sentry, internal Vercel request-log, Convex/Turso backup-retention, and
+  chosen LLM-provider retention evidence remains incomplete. No active
+  session-bound proof links the two host-app identities to one canonical
+  `globalUserId`; project destinations and grants remain unconfigured.
+
+Keep Gmail consent, AI triage, and dispatch closed. With both production roots
+available, continue by verifying the session-bound identities and canonical
+`globalUserId`, then explicitly select permitted destination projects and
+complete the remaining hosted retention review. No OAuth, Gmail read or
+modification, model request, or dispatch occurred in this run.
