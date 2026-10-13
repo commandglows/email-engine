@@ -744,3 +744,37 @@ names), deploy the ContentGlows review-intake API with
 send path does not recheck authority itself), and run the visible Google
 consent. Gmail consent, AI triage and dispatch stay closed until then.
 No OAuth, Gmail read or modification, model request or dispatch occurred.
+
+## Live identity link proven — 2026-10-13 (night)
+
+Delivered and deployed: CommandGlows #11 (pairing), #12 (ShipGlows.app's
+Firebase project `shipglows-cloud` accepted through the
+`EMAIL_MAILBOX_FIREBASE_PROJECT_IDS` allowlist, JWKS-verified, no revocation
+check for that project), #13 (region-qualified Convex URL accepted; five
+checks previously returned 503); email-engine #8; ContentGlows #115;
+ShipGlows.app #31. The new Convex functions were deployed to production from
+`main`. Both apps' production builds now carry only the bridge origin and OAuth
+return origin; `EMAIL_TRIAGE_AVAILABLE` is unset.
+
+The three historical unscoped `auth0` identity rows were all created by
+`contentglows_auth0_bridge_api`, and the repositories reference a single real
+Auth0 tenant. On that evidence Convex production now binds
+`SUITE_IDENTITY_LEGACY_AUTH0_ISSUER` to
+`https://dev-1ilnnessjjt200nm.us.auth0.com/`; this also unblocked the
+ContentGlows Auth0 bridge sync, which failed with
+`identity_legacy_scope_unverified`.
+
+Diane then paired the accounts visibly: a code generated in ShipGlows.app was
+confirmed in ContentGlows. Both apps display fingerprint `6WWW-Q7Y9`.
+Production Convex holds exactly one global user with both a Firebase
+(`shipglows-cloud`) and an Auth0 identity, plus one `identity_linked` audit
+event. No email address was used. The generating panel now polls status while
+its code is shown, so it no longer needs a page reload.
+
+Still closed: Gmail consent, AI triage, dispatch. Destination intake routes are
+not live: `api.contentglows.com` and `runner.shipglows.com` return 404 for
+`/api/projects/{id}/review-intake`. Both run on the managed host, which this
+workstation cannot reach (no SSH); deploying them, enabling
+`CONTENTGLOWS_REVIEW_INTAKE_ENABLED` / `RUNNER_REVIEW_INTAKE_ENABLED`, setting
+`CONTENTGLOWS_REVIEW_CONNECTION_AUTHORITY_URL`, and verifying PM2/Caddy log
+retention remain operator steps before destinations can be granted.
