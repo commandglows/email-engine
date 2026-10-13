@@ -695,3 +695,52 @@ available, continue by verifying the session-bound identities and canonical
 `globalUserId`, then explicitly select permitted destination projects and
 complete the remaining hosted retention review. No OAuth, Gmail read or
 modification, model request, or dispatch occurred in this run.
+
+## Identity pairing and hosted audit — 2026-10-13 (evening)
+
+Hosted re-check: ContentGlows (site and app), ShipGlows.app and CommandGlows
+roots return HTTP 200. The ContentGlows API (`api.contentglows.com`, Hetzner)
+returns 200 on `/health` and 404 on `/api/email-triage`,
+`/api/email-triage/bridge` and `/api/projects/{id}/review-intake`: the triage
+and review-intake routes are not live there. Vercel production still lacks
+`EMAIL_PROJECT_DESTINATIONS`, `EMAIL_PROJECT_DISPATCH_ENABLED`,
+`EMAIL_PRIVATE_DATA_TELEMETRY_VERIFIED` and the triage bridge URL/token;
+ContentGlows and ShipGlows.app production have no mailbox variables.
+
+Retention audit (official documentation, read-only account checks):
+
+| Path | Finding |
+| --- | --- |
+| Vercel runtime logs | Team plan is Pro: runtime logs kept 1 day (30 days only with Observability Plus, not enabled). Log drains: none. CommandGlows email code logs only one sanitized error line (fixed stage, status, code, request ID). |
+| Sentry (CommandGlows) | The site server has no Sentry SDK and never reads `SENTRY_DSN`; only `PUBLIC_SENTRY_DSN` is read, as a dispatch/triage blocker, and it is unset. The production `SENTRY_DSN` points to a project outside the visible organization list; no site event path exists. |
+| Sentry (ContentGlows API) | `before_send`/`before_send_transaction`/breadcrumb filters drop review-intake and triage events; `send_default_pii` false; local variables off (tested). Org scrubbing controls enabled 2026-10-12. Developer-plan error retention is 30 days. |
+| Convex (CommandGlows) | No backup and schedule `Never`; periodic backups would keep daily 7 days / weekly 14 days (Pro). No log stream. |
+| Turso (ContentGlows) | Free plan PITR: 24 hours; deleted rows remain restorable within that window. |
+| OpenRouter | Account requires ZDR endpoints and refuses training/publishing endpoints (2026-10-12). Prompts are not retained unless prompt logging is opted in. |
+| Auth0 / Firebase | Auth0 tenant logs 1–30 days by plan; Firebase/Google Cloud Logging `_Default` 30 days. Identity logs carry no mail content. |
+| ContentGlows API host | PM2/Caddy log retention on the Hetzner VM is not verified (no access from this workstation). |
+
+Identity pairing implemented (PRs open, not merged or deployed):
+
+- CommandGlows #11: mailbox bridge `identity/status` (linked + opaque 4-4
+  HMAC fingerprint), `identity/link-code` (sealed, purpose-bound, 5 minutes)
+  and `identity/link-confirm` (other provider's verified session). Convex
+  functions pair one Firebase and one Auth0 identity under one `globalUserId`,
+  refuse any second pairing (conflict guard), reconcile onto the Auth0 user and
+  write an audit event. Email never participates. 397 focused tests pass.
+- email-engine #8: `IdentityLinkRepository` and `IdentityLinkPanel`.
+- ContentGlows #115 and ShipGlows.app #31: panel on the mailbox screen, engine
+  pinned to `bdb596138bdc3b1f188791420f3dcb9cd8b1fb70`, optional validated
+  hosted mailbox defines.
+
+Activation order (with Diane present): merge engine #8 with a merge commit,
+then the two app PRs; merge CommandGlows #11 and `npx convex deploy` its
+functions; set the app mailbox defines (bridge origin only, triage false);
+redeploy; Diane signs into both apps, generates a code in one, confirms it in
+the other, and both show the same fingerprint. Only then select destination
+projects (`globalUserId`, `actorId`, project IDs, per-destination token
+names), deploy the ContentGlows review-intake API with
+`CONTENTGLOWS_REVIEW_CONNECTION_AUTHORITY_URL` set (the CommandGlows dispatch
+send path does not recheck authority itself), and run the visible Google
+consent. Gmail consent, AI triage and dispatch stay closed until then.
+No OAuth, Gmail read or modification, model request or dispatch occurred.
