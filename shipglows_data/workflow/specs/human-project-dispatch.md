@@ -778,3 +778,31 @@ workstation cannot reach (no SSH); deploying them, enabling
 `CONTENTGLOWS_REVIEW_INTAKE_ENABLED` / `RUNNER_REVIEW_INTAKE_ENABLED`, setting
 `CONTENTGLOWS_REVIEW_CONNECTION_AUTHORITY_URL`, and verifying PM2/Caddy log
 retention remain operator steps before destinations can be granted.
+
+## Destination intake deployed — 2026-10-14 (night)
+
+The managed host was updated over SSH, with the previous revisions recorded
+for rollback:
+- ContentGlows API: fast-forwarded from `b0e0c11d` to `a13262a3`, and
+  dependencies installed from `lab/requirements.lock` (`requirements.txt` does
+  not resolve). Startup required additive migration `014_private_media_inbox`,
+  causing a brief 502 until it was applied. `/health` is 200.
+  `CONTENTGLOWS_REVIEW_INTAKE_ENABLED=true` and
+  `CONTENTGLOWS_REVIEW_CONNECTION_AUTHORITY_URL` are set in Doppler
+  `contentglows_app/prd`. Unauthenticated intake now returns 401: the
+  enable, retention and privacy gates pass.
+- ShipGlows runner: fast-forwarded from `4ade559` to `24d6596` and installed
+  with `npm ci`. npm 12 blocks install scripts, so the native `node-pty` and
+  `@mongodb-js/zstd` builds were restored from the previous `node_modules`
+  (same versions). The runner is online. Intake answers 503
+  `review_intake_disabled`; no grant is configured.
+- Host logs: PM2 logs have no rotation (about 5 MB, retained until removed). The
+  system Caddyfile defines no access log. journald uses about 1.8 GB.
+  Request bodies are not logged.
+
+New blocker for any destination: the CommandGlows review authority requires a
+Clerk admin `users` row whose `globalUserId` equals the destination owner. The
+only admin row belongs to a different global user than the Firebase/Auth0 user
+paired above. A session-verified Clerk link is required; email matching and
+manual database edits are not acceptable. Project selection also remains
+Diane's decision. Gmail consent, AI triage and dispatch stay closed.
