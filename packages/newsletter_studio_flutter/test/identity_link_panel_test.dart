@@ -22,21 +22,27 @@ class _FakeGateway implements IdentityLinkGateway {
   IdentityLinkStatus currentStatus;
   IdentityLinkCode? code;
   IdentityLinkStatus? confirmResult;
-  Object? statusError;
+  final statusErrors = <Object>[];
+  Completer<void>? statusGate;
   Completer<void>? confirmGate;
   int statusCalls = 0;
+  int inFlight = 0;
+  int maxInFlight = 0;
   int createCalls = 0;
   final confirmCodes = <String>[];
 
   @override
   Future<IdentityLinkStatus> status() async {
     statusCalls++;
-    final error = statusError;
-    if (error != null) {
-      statusError = null;
-      throw error;
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    try {
+      await statusGate?.future;
+      if (statusErrors.isNotEmpty) throw statusErrors.removeAt(0);
+      return currentStatus;
+    } finally {
+      inFlight--;
     }
-    return currentStatus;
   }
 
   @override
@@ -56,18 +62,37 @@ class _FakeGateway implements IdentityLinkGateway {
 const _unlinked = IdentityLinkStatus(linked: false);
 const _linked = IdentityLinkStatus(linked: true, fingerprint: 'ABCD-EFGH');
 
-Widget _host(IdentityLinkGateway gateway) => MaterialApp(
-  home: Scaffold(
-    body: SingleChildScrollView(
-      child: IdentityLinkPanel(
-        gateway: gateway,
-        providerLabel: 'ShipGlows',
-        otherAppLabel: 'ContentGlows',
-        clock: () => _now,
+const _unavailableMessage =
+    'L’association est momentanément indisponible. Réessayez dans un instant.';
+
+Widget _host(IdentityLinkGateway gateway, {DateTime Function()? clock}) =>
+    MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: IdentityLinkPanel(
+            gateway: gateway,
+            providerLabel: 'ShipGlows',
+            otherAppLabel: 'ContentGlows',
+            clock: clock ?? () => _now,
+          ),
+        ),
       ),
-    ),
-  ),
-);
+    );
+
+IdentityLinkCode _freshCode(DateTime expiresAt) =>
+    IdentityLinkCode(code: 'SYN-CODE-123', expiresAt: expiresAt);
+
+/// Mounts the panel, then generates a code so polling is running.
+Future<void> _generateCode(
+  WidgetTester tester,
+  _FakeGateway gateway, {
+  DateTime Function()? clock,
+}) async {
+  await tester.pumpWidget(_host(gateway, clock: clock));
+  await tester.pump();
+  await tester.tap(find.text('Générer un code'));
+  await tester.pump();
+}
 
 Finder _selectable(String text) => find.byWidgetPredicate(
   (widget) => widget is SelectableText && widget.data == text,
@@ -216,30 +241,178 @@ void main() {
     expect(find.text('Générer un code'), findsNothing);
   });
 
-  testWidgets('error state shows a bounded message and retry without raw text', (
+  testWidgets(
+    'error state shows a bounded message and retry without raw text',
+    (tester) async {
+      final gateway = _FakeGateway(currentStatus: _unlinked)
+        ..statusErrors.add(
+          const _Failure('identity_link_unavailable', 'RAW-SECRET-DETAIL'),
+        );
+      await tester.pumpWidget(_host(gateway));
+      await tester.pump();
+
+      expect(find.textContaining('RAW-SECRET-DETAIL'), findsNothing);
+      expect(find.text(_unavailableMessage), findsOneWidget);
+
+      await tester.tap(find.text('Réessayer'));
+      await tester.pump();
+
+      expect(gateway.statusCalls, 2);
+      expect(find.textContaining('ne suffit jamais'), findsOneWidget);
+      expect(find.text('Réessayer'), findsNothing);
+    },
+  );
+
+  testWidgets('generated code switches to linked on poll without user action', (
     tester,
   ) async {
-    final gateway = _FakeGateway(currentStatus: _unlinked)
-      ..statusError = const _Failure(
-        'identity_link_unavailable',
-        'RAW-SECRET-DETAIL',
-      );
-    await tester.pumpWidget(_host(gateway));
-    await tester.pump();
+    final gateway = _FakeGateway(
+      currentStatus: _unlinked,
+      code: _freshCode(_now.add(const Duration(minutes: 5))),
+    );
+    await _generateCode(tester, gateway);
+    expect(_selectable('SYN-CODE-123'), findsOneWidget);
 
-    expect(find.textContaining('RAW-SECRET-DETAIL'), findsNothing);
+    gateway.currentStatus = _linked;
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(_selectable('SYN-CODE-123'), findsNothing);
+    expect(find.text('Comptes associés'), findsOneWidget);
     expect(
-      find.text(
-        'L’association est momentanément indisponible. Réessayez dans un instant.',
+      _selectable(
+        'Empreinte : ABCD-EFGH — elle doit être identique dans ContentGlows.',
       ),
       findsOneWidget,
     );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
-    await tester.tap(find.text('Réessayer'));
+  testWidgets('polling stops once the account is linked', (tester) async {
+    final gateway = _FakeGateway(
+      currentStatus: _unlinked,
+      code: _freshCode(_now.add(const Duration(minutes: 5))),
+    );
+    await _generateCode(tester, gateway);
+
+    gateway.currentStatus = _linked;
+    await tester.pump(const Duration(seconds: 3));
+    final callsWhenLinked = gateway.statusCalls;
+    await tester.pump(const Duration(seconds: 30));
+
+    expect(gateway.statusCalls, callsWhenLinked);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('polling stops when the displayed code expires', (tester) async {
+    var now = _now;
+    final gateway = _FakeGateway(
+      currentStatus: _unlinked,
+      code: _freshCode(_now.add(const Duration(seconds: 10))),
+    );
+    await _generateCode(tester, gateway, clock: () => now);
+
+    await tester.pump(const Duration(seconds: 3));
+    expect(gateway.statusCalls, 2);
+
+    now = _now.add(const Duration(seconds: 11));
+    await tester.pump(const Duration(seconds: 3));
+    expect(gateway.statusCalls, 2);
+    await tester.pump(const Duration(seconds: 30));
+
+    expect(gateway.statusCalls, 2);
+    expect(
+      find.text('Ce code a expiré. Générez-en un nouveau.'),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a slow status call is never overlapped by the next poll', (
+    tester,
+  ) async {
+    final gateway = _FakeGateway(
+      currentStatus: _unlinked,
+      code: _freshCode(_now.add(const Duration(minutes: 5))),
+    );
+    await _generateCode(tester, gateway);
+
+    gateway.statusGate = Completer<void>();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(seconds: 9));
+
+    expect(gateway.statusCalls, 2);
+    expect(gateway.maxInFlight, 1);
+
+    gateway.statusGate!.complete();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(gateway.statusCalls, 3);
+    expect(gateway.maxInFlight, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('disposing the panel cancels polling', (tester) async {
+    final gateway = _FakeGateway(
+      currentStatus: _unlinked,
+      code: _freshCode(_now.add(const Duration(minutes: 5))),
+    );
+    await _generateCode(tester, gateway);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    final callsAfterDispose = gateway.statusCalls;
+    await tester.pump(const Duration(seconds: 30));
+
+    expect(gateway.statusCalls, callsAfterDispose);
+  });
+
+  testWidgets('transient poll errors stay silent until the third in a row', (
+    tester,
+  ) async {
+    final gateway = _FakeGateway(
+      currentStatus: _unlinked,
+      code: _freshCode(_now.add(const Duration(minutes: 5))),
+    );
+    await _generateCode(tester, gateway);
+
+    gateway.statusErrors.addAll([
+      const _Failure('identity_link_unavailable', 'RAW-SECRET-DETAIL'),
+      const _Failure('identity_link_unavailable', 'RAW-SECRET-DETAIL'),
+      const _Failure('identity_link_unavailable', 'RAW-SECRET-DETAIL'),
+    ]);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(find.text(_unavailableMessage), findsNothing);
+    expect(_selectable('SYN-CODE-123'), findsOneWidget);
+    expect(gateway.statusCalls, 3);
+
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(find.text(_unavailableMessage), findsOneWidget);
+    expect(find.text('Réessayer'), findsOneWidget);
+    expect(find.textContaining('RAW-SECRET-DETAIL'), findsNothing);
+    expect(_selectable('SYN-CODE-123'), findsOneWidget);
+
+    final callsAtError = gateway.statusCalls;
+    await tester.pump(const Duration(seconds: 30));
+    expect(gateway.statusCalls, callsAtError);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('returning to the foreground refreshes status when not linked', (
+    tester,
+  ) async {
+    final gateway = _FakeGateway(currentStatus: _unlinked);
+    await tester.pumpWidget(_host(gateway));
+    await tester.pump();
+    expect(gateway.statusCalls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
 
     expect(gateway.statusCalls, 2);
-    expect(find.textContaining('ne suffit jamais'), findsOneWidget);
-    expect(find.text('Réessayer'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }

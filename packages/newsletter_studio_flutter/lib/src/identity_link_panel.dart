@@ -17,6 +17,7 @@ class IdentityLinkPanel extends StatefulWidget {
     required this.providerLabel,
     required this.otherAppLabel,
     this.clock = DateTime.now,
+    this.pollInterval = const Duration(seconds: 3),
   });
 
   final IdentityLinkGateway gateway;
@@ -30,11 +31,18 @@ class IdentityLinkPanel extends StatefulWidget {
   /// Injected time source for expiry display, so tests stay deterministic.
   final DateTime Function() clock;
 
+  /// How often status is polled while a generated code is displayed.
+  final Duration pollInterval;
+
   @override
   State<IdentityLinkPanel> createState() => _IdentityLinkPanelState();
 }
 
-class _IdentityLinkPanelState extends State<IdentityLinkPanel> {
+class _IdentityLinkPanelState extends State<IdentityLinkPanel>
+    with WidgetsBindingObserver {
+  /// Consecutive silent poll failures before polling stops and the error shows.
+  static const _maxConsecutiveFailures = 3;
+
   final _codeField = TextEditingController();
   IdentityLinkStatus? _status;
   IdentityLinkCode? _issued;
@@ -43,19 +51,36 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel> {
   bool _busy = false;
   bool _entering = false;
   Timer? _ticker;
+  Timer? _poller;
+  bool _checkInFlight = false;
+  int _checkFailures = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
+    _poller?.cancel();
     _codeField.dispose();
     super.dispose();
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || _isLinked) return;
+    unawaited(_checkStatus());
+  }
+
+  bool get _isLinked => _status?.linked == true && _status?.fingerprint != null;
+
+  bool _isExpired(IdentityLinkCode issued) =>
+      issued.expiresAt.difference(widget.clock().toUtc()) <= Duration.zero;
 
   static String _codeOf(Object error) => switch (error) {
     CodedFailure(:final code) => code,
@@ -87,12 +112,74 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel> {
     try {
       final status = await widget.gateway.status();
       if (!mounted) return;
-      setState(() => _status = status);
+      _applyStatus(status);
     } catch (error) {
       if (mounted) setState(() => _errorCode = _codeOf(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Applies a status result: linked clears the code and stops all code timers.
+  void _applyStatus(IdentityLinkStatus status) {
+    setState(() {
+      _status = status;
+      if (_isLinked) _issued = null;
+    });
+    if (_isLinked) {
+      _stopCodeTimers();
+    } else {
+      _ensurePolling();
+    }
+  }
+
+  /// One silent status check shared by the poller and app resume; never overlaps.
+  Future<void> _checkStatus() async {
+    if (_checkInFlight) return;
+    _checkInFlight = true;
+    try {
+      final status = await widget.gateway.status();
+      if (!mounted) return;
+      _checkFailures = 0;
+      _applyStatus(status);
+    } catch (error) {
+      if (!mounted) return;
+      _checkFailures++;
+      if (_checkFailures >= _maxConsecutiveFailures) {
+        _stopPolling();
+        setState(() => _errorCode = _codeOf(error));
+      }
+    } finally {
+      _checkInFlight = false;
+    }
+  }
+
+  void _onPollTick() {
+    final issued = _issued;
+    if (issued == null || _isExpired(issued)) {
+      _stopPolling();
+      return;
+    }
+    unawaited(_checkStatus());
+  }
+
+  /// Polls only while a live, unlinked code is displayed.
+  void _ensurePolling() {
+    final issued = _issued;
+    if (_poller != null || issued == null || _isExpired(issued)) return;
+    _checkFailures = 0;
+    _poller = Timer.periodic(widget.pollInterval, (_) => _onPollTick());
+  }
+
+  void _stopPolling() {
+    _poller?.cancel();
+    _poller = null;
+  }
+
+  void _stopCodeTimers() {
+    _ticker?.cancel();
+    _ticker = null;
+    _stopPolling();
   }
 
   Future<void> _generate() async {
@@ -109,6 +196,7 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel> {
         if (mounted) setState(() {});
       });
       setState(() => _issued = issued);
+      _ensurePolling();
     } catch (error) {
       if (mounted) setState(() => _errorCode = _codeOf(error));
     } finally {
@@ -117,8 +205,7 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel> {
   }
 
   void _hideCode() {
-    _ticker?.cancel();
-    _ticker = null;
+    _stopCodeTimers();
     setState(() => _issued = null);
   }
 
@@ -207,12 +294,10 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel> {
 
   Widget _issuedCode(BuildContext context, IdentityLinkCode issued) {
     final theme = Theme.of(context);
-    final expired =
-        issued.expiresAt.difference(widget.clock().toUtc()) <= Duration.zero;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (expired)
+        if (_isExpired(issued))
           const Text('Ce code a expiré. Générez-en un nouveau.')
         else ...[
           SelectableText(issued.code, style: theme.textTheme.headlineSmall),
