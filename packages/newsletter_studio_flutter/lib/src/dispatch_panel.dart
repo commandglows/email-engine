@@ -449,6 +449,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
           DropdownButtonFormField<String>(
             key: ValueKey(_type),
             initialValue: _type,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'Type d’apport'),
             items: const [
               DropdownMenuItem(
