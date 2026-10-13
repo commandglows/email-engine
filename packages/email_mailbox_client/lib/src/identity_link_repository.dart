@@ -51,8 +51,9 @@ class IdentityLinkRepository implements IdentityLinkGateway {
         (fingerprint is! String || !_fingerprint.hasMatch(fingerprint))) {
       throw const EmailApiException('invalid_response');
     }
-    // A link always carries its fingerprint, and an unlinked account never does.
-    if (linked != (fingerprint != null)) {
+    // A link always carries its fingerprint. A provisioned but unlinked
+    // account also has one; only an unknown identity has none.
+    if (linked && fingerprint == null) {
       throw const EmailApiException('invalid_response');
     }
     return IdentityLinkStatus(

@@ -94,20 +94,22 @@ void main() {
       }
     });
 
-    test(
-      'rejects a linked state without fingerprint or a fingerprint without link',
-      () async {
-        final missing = IdentityLinkRepository(
-          _api(MockClient((_) async => _json(_status(fingerprint: null)))),
-        );
-        await expectLater(missing.status(), _invalidResponse);
+    test('rejects a linked state without fingerprint', () async {
+      final missing = IdentityLinkRepository(
+        _api(MockClient((_) async => _json(_status(fingerprint: null)))),
+      );
+      await expectLater(missing.status(), _invalidResponse);
+    });
 
-        final unexpected = IdentityLinkRepository(
-          _api(MockClient((_) async => _json(_status(linked: false)))),
-        );
-        await expectLater(unexpected.status(), _invalidResponse);
-      },
-    );
+    test('keeps the fingerprint of a provisioned unlinked account', () async {
+      final repository = IdentityLinkRepository(
+        _api(MockClient((_) async => _json(_status(linked: false)))),
+      );
+      expect(
+        await repository.status(),
+        const IdentityLinkStatus(linked: false, fingerprint: _fingerprint),
+      );
+    });
   });
 
   group('createLinkCode', () {
