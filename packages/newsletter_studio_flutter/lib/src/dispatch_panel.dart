@@ -350,6 +350,84 @@ class _DispatchPanelState extends State<DispatchPanel> {
           : '',
   };
 
+  /// Destinations grouped by project in first-seen order. Each group lists the
+  /// project-level target first, then its sub-targets (drafts, idea pool).
+  List<_DestinationGroup> get _groupedDestinations {
+    final byProject = <String, List<DispatchDestination>>{};
+    for (final d in _context?.destinations ?? const <DispatchDestination>[]) {
+      byProject.putIfAbsent(d.projectId, () => []).add(d);
+    }
+    return [
+      for (final entry in byProject.entries)
+        _DestinationGroup(
+          header: _groupHeader(entry.value, entry.key),
+          items: [
+            ...entry.value.where((d) => d.kind == 'project'),
+            ...entry.value.where((d) => d.kind != 'project'),
+          ],
+        ),
+    ];
+  }
+
+  static String _groupHeader(List<DispatchDestination> items, String fallback) {
+    for (final d in items) {
+      final label = d.projectLabel;
+      if (label != null && label.isNotEmpty) return label;
+    }
+    return fallback;
+  }
+
+  /// Relative age of the destination list, recomputed on every build.
+  /// A future timestamp (clock skew) reads as "à l’instant".
+  static String _freshnessLabel(DateTime generatedAt) {
+    final minutes = DateTime.now()
+        .toUtc()
+        .difference(generatedAt.toUtc())
+        .inMinutes;
+    return minutes < 1
+        ? 'Liste mise à jour à l’instant'
+        : 'Liste mise à jour il y a $minutes min';
+  }
+
+  static String _kindLabel(String kind) => switch (kind) {
+    'content_draft' => 'Ébauche ContentGlows',
+    'idea_pool' => 'Idea Pool',
+    'project' => 'Projet',
+    _ => 'Destination',
+  };
+
+  static IconData _kindIcon(String kind) => switch (kind) {
+    'content_draft' => Icons.edit_note_outlined,
+    'idea_pool' => Icons.lightbulb_outline,
+    'project' => Icons.folder_outlined,
+    _ => Icons.inbox_outlined,
+  };
+
+  /// The host's `disabled_reason` wins when present; otherwise the subtitle
+  /// names the unavailability or the kind so the cue is not colour-only.
+  static String _destinationSubtitle(DispatchDestination d) {
+    final reason = d.disabledReason;
+    if (reason != null && reason.isNotEmpty) return reason;
+    if (!d.available) return 'Connexion ou autorisation projet indisponible';
+    return d.kind == 'project' ? d.projectId : _kindLabel(d.kind);
+  }
+
+  Widget _destinationTile(DispatchDestination d) => CheckboxListTile(
+    value: _selected.contains(d.id),
+    secondary: Icon(_kindIcon(d.kind)),
+    title: Text(d.label),
+    subtitle: Text(_destinationSubtitle(d)),
+    onChanged: _locked || !d.available
+        ? null
+        : (v) => setState(() {
+            if (v == true) {
+              _selected.add(d.id);
+            } else {
+              _selected.remove(d.id);
+            }
+          }),
+  );
+
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
@@ -490,25 +568,25 @@ class _DispatchPanelState extends State<DispatchPanel> {
               labelText: 'Risques (un par ligne, maximum 10)',
             ),
           ),
-          for (final d in _context?.destinations ?? <DispatchDestination>[])
-            CheckboxListTile(
-              value: _selected.contains(d.id),
-              title: Text(d.label),
-              subtitle: Text(
-                d.available
-                    ? d.projectId
-                    : 'Connexion ou autorisation projet indisponible',
+          if (_context?.generatedAt case final generatedAt?)
+            Text(_freshnessLabel(generatedAt)),
+          for (final group in _groupedDestinations) ...[
+            Semantics(
+              header: true,
+              child: Text(
+                group.header,
+                style: Theme.of(context).textTheme.titleSmall,
               ),
-              onChanged: _locked || !d.available
-                  ? null
-                  : (v) => setState(() {
-                      if (v == true) {
-                        _selected.add(d.id);
-                      } else {
-                        _selected.remove(d.id);
-                      }
-                    }),
             ),
+            for (final d in group.items)
+              if (d.kind == 'project')
+                _destinationTile(d)
+              else
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 24),
+                  child: _destinationTile(d),
+                ),
+          ],
           if (_context?.destinations.isEmpty == true)
             const Text('Aucune destination projet configurée.'),
           FilledButton(
@@ -519,4 +597,11 @@ class _DispatchPanelState extends State<DispatchPanel> {
       ),
     ),
   );
+}
+
+/// One project heading in the destination list, with its targets in order.
+class _DestinationGroup {
+  const _DestinationGroup({required this.header, required this.items});
+  final String header;
+  final List<DispatchDestination> items;
 }

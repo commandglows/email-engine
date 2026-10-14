@@ -4,23 +4,50 @@ import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 class DemoDispatchRepository implements DispatchRepository {
   final _records = <String, List<ProjectDispatch>>{};
   @override
-  Future<DispatchContext> context(String mailboxId) async =>
-      const DispatchContext(
-        destinations: [
-          DispatchDestination(
-            id: 'synthetic-content',
-            label: 'ContentGlows · démonstration',
-            projectId: 'synthetic-content',
-            available: true,
-          ),
-          DispatchDestination(
-            id: 'synthetic-tasks',
-            label: 'ShipGlows · démonstration (résultat partiel)',
-            projectId: 'synthetic-tasks',
-            available: true,
-          ),
-        ],
-      );
+  Future<DispatchContext> context(String mailboxId) async => DispatchContext(
+    generatedAt: DateTime.now().toUtc().subtract(const Duration(minutes: 4)),
+    destinations: const [
+      DispatchDestination(
+        id: 'synthetic-content',
+        label: 'ContentGlows · démonstration',
+        projectId: 'synthetic-content',
+        projectLabel: 'ContentGlows · démonstration',
+        available: true,
+      ),
+      DispatchDestination(
+        id: 'synthetic-content-draft',
+        label: 'Ébauche de démonstration',
+        projectId: 'synthetic-content',
+        projectLabel: 'ContentGlows · démonstration',
+        kind: 'content_draft',
+        available: true,
+      ),
+      DispatchDestination(
+        id: 'synthetic-idea-pool',
+        label: 'Idea Pool · démonstration',
+        projectId: 'synthetic-content',
+        projectLabel: 'ContentGlows · démonstration',
+        kind: 'idea_pool',
+        available: true,
+      ),
+      DispatchDestination(
+        id: 'synthetic-tasks',
+        label: 'ShipGlows · démonstration (résultat partiel)',
+        projectId: 'synthetic-tasks',
+        projectLabel: 'ShipGlows · démonstration',
+        available: true,
+      ),
+      DispatchDestination(
+        id: 'synthetic-tasks-draft',
+        label: 'Ébauche indisponible · démonstration',
+        projectId: 'synthetic-tasks',
+        projectLabel: 'ShipGlows · démonstration',
+        kind: 'content_draft',
+        available: false,
+        disabledReason: 'Autorisation projet expirée (démonstration)',
+      ),
+    ],
+  );
   @override
   Future<List<ProjectDispatch>> history(
     String mailboxId,

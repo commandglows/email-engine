@@ -7,8 +7,10 @@ class _DispatchFake implements DispatchRepository {
   bool loseConfirm = false, rejectRecovery = false;
   bool missingRecovery = false;
   final records = <ProjectDispatch>[];
+  DispatchContext? contextOverride;
   @override
   Future<DispatchContext> context(String mailboxId) async =>
+      contextOverride ??
       const DispatchContext(
         destinations: [
           DispatchDestination(
@@ -255,6 +257,7 @@ void main() {
       await tester.tap(find.text('Corriger'));
       await tester.pumpAndSettle();
       expect(repo.confirms, 0);
+      await tester.ensureVisible(find.text('Revoir et confirmer le dispatch'));
       await tester.tap(find.text('Revoir et confirmer le dispatch'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Valider les destinations'));
@@ -342,4 +345,101 @@ void main() {
       expect(repo.confirms, 1);
     },
   );
+
+  testWidgets('destinations group under their project with sub-targets last', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repo = _DispatchFake()
+      ..contextOverride = DispatchContext(
+        generatedAt: DateTime.now().toUtc().subtract(
+          const Duration(minutes: 7),
+        ),
+        destinations: const [
+          DispatchDestination(
+            id: 'draft-alpha',
+            label: 'Ébauche Alpha',
+            projectId: 'p-alpha',
+            projectLabel: 'Projet Alpha',
+            kind: 'content_draft',
+            available: true,
+          ),
+          DispatchDestination(
+            id: 'p-alpha',
+            label: 'Boîte Alpha',
+            projectId: 'p-alpha',
+            projectLabel: 'Projet Alpha',
+            available: true,
+          ),
+          DispatchDestination(
+            id: 'idea-beta',
+            label: 'Idée Beta',
+            projectId: 'p-beta',
+            kind: 'idea_pool',
+            available: false,
+            disabledReason: 'Autorisation projet expirée synthétique',
+          ),
+          DispatchDestination(
+            id: 'p-beta',
+            label: 'Boîte Beta',
+            projectId: 'p-beta',
+            available: true,
+          ),
+        ],
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: DispatchPanel(
+              repository: repo,
+              mailboxId: 'synthetic-box',
+              threadId: 'synthetic-thread',
+              messageId: 'synthetic-message',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    double top(String text) => tester.getTopLeft(find.text(text)).dy;
+    // Project header, project target, then its sub-target, before the next project.
+    expect(top('Projet Alpha'), lessThan(top('Boîte Alpha')));
+    expect(top('Boîte Alpha'), lessThan(top('Ébauche Alpha')));
+    expect(top('Ébauche Alpha'), lessThan(top('Boîte Beta')));
+    expect(top('Boîte Beta'), lessThan(top('Idée Beta')));
+    expect(find.byIcon(Icons.edit_note_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.lightbulb_outline), findsOneWidget);
+    expect(find.text('Ébauche ContentGlows'), findsOneWidget);
+    expect(
+      find.text('Autorisation projet expirée synthétique'),
+      findsOneWidget,
+    );
+    expect(find.text('Liste mise à jour il y a 7 min'), findsOneWidget);
+  });
+
+  testWidgets('no freshness line when the host omits the generation time', (
+    tester,
+  ) async {
+    final repo = _DispatchFake();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: DispatchPanel(
+              repository: repo,
+              mailboxId: 'synthetic-box',
+              threadId: 'synthetic-thread',
+              messageId: 'synthetic-message',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Liste mise à jour'), findsNothing);
+    expect(find.text('Projet synthétique A'), findsOneWidget);
+  });
 }

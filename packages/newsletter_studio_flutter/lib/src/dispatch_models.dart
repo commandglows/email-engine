@@ -1,5 +1,11 @@
 import 'dart:math';
 
+/// One selectable dispatch target.
+///
+/// [kind] is `project` for a project inbox, or a sub-target such as
+/// `content_draft` or `idea_pool` that belongs to [projectId]. The panel groups
+/// sub-targets under their project. Hosts that predate the field omit it, so
+/// it defaults to `project`.
 class DispatchDestination {
   const DispatchDestination({
     required this.id,
@@ -7,21 +13,40 @@ class DispatchDestination {
     required this.projectId,
     required this.available,
     this.disabledReason,
+    this.kind = 'project',
+    this.projectLabel,
   });
   final String id, label, projectId;
   final bool available;
   final String? disabledReason;
+
+  /// Target kind: `project`, `content_draft` or `idea_pool`.
+  final String kind;
+
+  /// Human name of the owning project, used as the group header when present.
+  /// Null means the panel falls back to [projectId].
+  final String? projectLabel;
 }
 
 class DispatchContext {
   const DispatchContext({
     required this.destinations,
     this.analysisEnabled = false,
+    this.generatedAt,
   });
   final List<DispatchDestination> destinations;
   final bool analysisEnabled;
+
+  /// When the host generated this destination list, in UTC. Null when the
+  /// host did not send it, in which case no freshness hint is shown.
+  final DateTime? generatedAt;
 }
 
+/// Human-confirmed proposal sent by the panel.
+///
+/// The payload carries only [destinationIds]. The mapping from each selected
+/// destination to an intake v2 `target` (`kind` and `id`) is done server-side
+/// by CommandGlows, so the client never sends targets, URLs or tokens.
 class DispatchProposal {
   const DispatchProposal({
     required this.dispatchId,
