@@ -1,11 +1,11 @@
 ---
 artifact: handoff
 metadata_schema_version: "1.0"
-artifact_version: "1.0.0"
+artifact_version: "1.1.0"
 project: email-engine
 created: "2026-10-14"
 updated: "2026-10-14"
-status: proposed
+status: in_progress
 source_skill: shipglows
 scope: dynamic-dispatch-destinations
 owner: Diane
@@ -17,8 +17,35 @@ linked_systems: [CommandGlows, ContentGlows, ShipGlows.app, ShipGlows CLI, shipg
 depends_on:
   - artifact: shipglows_data/workflow/specs/human-project-dispatch.md
     required_status: active
-next_step: Orchestrator validates the decisions below with Diane, then writes one owning spec per repository
+next_step: Diane reviews the five branches, applies migrations (ContentGlows 015/016), deploys, then runs batch 5 (activation) in person
 ---
+
+> **État 2026-10-14 (implémentation autonome).** Les lots 0 à 4 sont implémentés
+> sur des branches locales, tests verts, rien n'est déployé ni activé :
+> - ContentGlows `fix/idea-pool-ownership` (lot 0) et
+>   `feat/contentglows-dispatch-targets` (dispatch-targets + intake v2).
+> - shipglows-private `feat/projects-registry-json` (registry.json, 19 entrées).
+> - ShipGlows runner `feat/runner-dispatch-targets` (dispatch-targets,
+>   grants en table, intake v2).
+> - CommandGlows `feat/dispatch-destinations-catalog` (catalogue Convex,
+>   lecteur unique, recheck autorité au claim, écran d'activation).
+> - Moteur `feat/intake-v2-dispatch-panel` (contrat v2, panneau groupé,
+>   fraîcheur).
+>
+> **Décisions actées (autonomes, révocables) :**
+> 1. Cibles ContentGlows : ébauches **et** Idea Pool.
+> 2. États récepteurs d'ébauche : `todo` et `in_progress` (pas `generated`).
+> 3. Slug `shipglows-private` = clé canonique ; `projects/registry.json` créé.
+> 4. « Actif » = non archivé + `accessState=available` (colonne `is_archived`
+>    ajoutée côté runner, filtre `archivedAt` côté ContentGlows).
+> 5. Activation explicite une par une dans CommandGlows (jamais automatique) ;
+>    les découvertes arrivent en `candidate`.
+>
+> La réponse `dispatch/context` reste `schema_version: 1` avec champs additifs
+> optionnels (`kind`, `project_label`, `generated_at`). Reste pour Diane :
+> migrations ContentGlows 015/016 (plan puis apply), variables Convex
+> (`EMAIL_DISPATCH_HOST_ALLOWLIST`, tokens), déploiements, bump du pin moteur,
+> puis lot 5 (flags + consentement Google, en personne).
 
 # Handoff — dynamic dispatch destinations
 
