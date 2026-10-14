@@ -255,6 +255,7 @@ void main() {
       await tester.tap(find.text('Corriger'));
       await tester.pumpAndSettle();
       expect(repo.confirms, 0);
+      await tester.ensureVisible(find.text('Revoir et confirmer le dispatch'));
       await tester.tap(find.text('Revoir et confirmer le dispatch'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Valider les destinations'));
