@@ -122,12 +122,13 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel>
 
   /// Applies a status result: linked clears the code and stops all code timers.
   void _applyStatus(IdentityLinkStatus status) {
+    final wasLinked = _isLinked;
     setState(() {
       _status = status;
-      if (_isLinked) _issued = null;
+      if (_isLinked && !wasLinked) _issued = null;
     });
     if (_isLinked) {
-      _stopCodeTimers();
+      if (!wasLinked) _stopCodeTimers();
     } else {
       _ensurePolling();
     }
@@ -196,7 +197,8 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel>
         if (mounted) setState(() {});
       });
       setState(() => _issued = issued);
-      _ensurePolling();
+      // Already linked: the code is for another account, so status never ends it.
+      if (!_isLinked) _ensurePolling();
     } catch (error) {
       if (mounted) setState(() => _errorCode = _codeOf(error));
     } finally {
@@ -397,6 +399,18 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel>
         ),
         SelectableText(
           'Empreinte : $fingerprint — elle doit être identique dans ${widget.otherAppLabel}.',
+        ),
+        if (_issued != null) _issuedCode(context, _issued!),
+        const Text(
+          'Pour associer un autre compte (par exemple l’administration CommandGlows), générez un code puis saisissez-le dans cette application.',
+        ),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: OutlinedButton.icon(
+            onPressed: _busy || _loading ? null : () => unawaited(_generate()),
+            icon: const Icon(Icons.key),
+            label: const Text('Générer un code pour un autre compte'),
+          ),
         ),
       ],
     );

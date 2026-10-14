@@ -239,6 +239,31 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Générer un code'), findsNothing);
+    expect(find.text('Générer un code pour un autre compte'), findsOneWidget);
+  });
+
+  testWidgets('a linked account can still issue a code for another account', (
+    tester,
+  ) async {
+    final gateway = _FakeGateway(
+      currentStatus: _linked,
+      code: _freshCode(_now.add(const Duration(minutes: 5))),
+    );
+    await tester.pumpWidget(_host(gateway));
+    await tester.pump();
+
+    await tester.tap(find.text('Générer un code pour un autre compte'));
+    await tester.pump();
+    expect(gateway.createCalls, 1);
+    expect(_selectable('SYN-CODE-123'), findsOneWidget);
+
+    // The code is for another account: polling must neither start nor clear it.
+    final callsBefore = gateway.statusCalls;
+    await tester.pump(const Duration(seconds: 10));
+    expect(gateway.statusCalls, callsBefore);
+    expect(_selectable('SYN-CODE-123'), findsOneWidget);
+    expect(find.text('Comptes associés'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets(
