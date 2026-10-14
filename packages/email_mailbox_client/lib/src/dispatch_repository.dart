@@ -90,6 +90,9 @@ class CentralDispatchRepository implements DispatchRepository {
     if (d['schema_version'] != 1) throw const FormatException();
     return DispatchContext(
       analysisEnabled: d['analysis_enabled'] == true,
+      generatedAt: d['generated_at'] is String
+          ? DateTime.tryParse(d['generated_at'] as String)?.toUtc()
+          : null,
       destinations: (d['destinations'] as List)
           .map(
             (r) => DispatchDestination(
@@ -98,6 +101,11 @@ class CentralDispatchRepository implements DispatchRepository {
               projectId: r['project_id'] as String,
               available: r['available'] == true,
               disabledReason: r['disabled_reason'] as String?,
+              // Optional since schema_version 1 hosts never sent these keys.
+              kind: r['kind'] is String ? r['kind'] as String : 'project',
+              projectLabel: r['project_label'] is String
+                  ? r['project_label'] as String
+                  : null,
             ),
           )
           .toList(),
