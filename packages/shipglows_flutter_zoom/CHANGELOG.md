@@ -6,6 +6,13 @@
 - Paint each zoom step at once and lay the content out again only when the
   wheel pauses (`reflowDelay`, 150 ms by default), so zooming stays smooth in
   apps that are costly to lay out.
+- Zoom with trackpad pinches (Windows precision touchpads, macOS): zoom at the
+  start of the pinch × its scale. Widgets below keep the two-finger pan but
+  no longer receive the pinch scale.
+- Move Ctrl/Command+wheel by `zoomStep` per full wheel notch (100 engine units,
+  the Windows and Chromium default) and proportionally for the small deltas of
+  high-resolution wheels and touchpads, instead of one step per event. Web
+  Ctrl+wheel scale signals follow the same rule.
 
 ## 0.1.0
 

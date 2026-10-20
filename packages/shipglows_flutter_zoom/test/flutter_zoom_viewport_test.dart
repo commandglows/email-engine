@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -74,5 +76,76 @@ void main() {
     );
     await tester.pump();
     expect(tester.getSize(content).width, initialWidth);
+  });
+
+  testWidgets('zooms one step per full Ctrl+wheel notch', (tester) async {
+    final changes = <double>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FlutterZoomViewport(
+          onZoomChanged: changes.add,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+
+    // A high-resolution wheel sends a notch as several small deltas.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    for (var i = 0; i < 4; i++) {
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(scrollDelta: Offset(0, -25)),
+      );
+    }
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(changes.last, closeTo(1.1, 1e-9));
+    expect(changes, hasLength(4));
+  });
+
+  testWidgets('zooms with a trackpad pinch the widgets below never see', (
+    tester,
+  ) async {
+    final changes = <double>[];
+    final forwardedScales = <double>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FlutterZoomViewport(
+          onZoomChanged: changes.add,
+          child: Listener(
+            onPointerPanZoomUpdate: (event) => forwardedScales.add(event.scale),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+
+    void send(ui.PointerChange change, {double scale = 1}) {
+      tester.binding.platformDispatcher.onPointerDataPacket!(
+        ui.PointerDataPacket(
+          data: [
+            ui.PointerData(
+              change: change,
+              kind: ui.PointerDeviceKind.trackpad,
+              device: 7,
+              physicalX: 300,
+              physicalY: 300,
+              scale: scale,
+            ),
+          ],
+        ),
+      );
+    }
+
+    send(ui.PointerChange.panZoomStart);
+    send(ui.PointerChange.panZoomUpdate, scale: 1.01);
+    expect(changes, isEmpty);
+    send(ui.PointerChange.panZoomUpdate, scale: 1.05);
+    send(ui.PointerChange.panZoomUpdate, scale: 1.26);
+    send(ui.PointerChange.panZoomEnd);
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(changes.last, closeTo(1.2, 1e-6));
+    expect(forwardedScales, everyElement(1.0));
   });
 }

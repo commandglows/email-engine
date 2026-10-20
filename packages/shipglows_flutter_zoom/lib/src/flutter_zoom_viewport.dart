@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -79,24 +80,145 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
       HardwareKeyboard.instance.isControlPressed ||
       HardwareKeyboard.instance.isMetaPressed;
 
+  /// Scroll delta of one wheel notch as the engine reports it: Windows sends
+  /// `lines per notch × 100 / 3` (100 with the default 3 lines), like
+  /// Chromium. High-resolution wheels and non-precision touchpads send
+  /// fractions of it.
+  static const double _wheelNotchDelta = 100;
+
+  /// How far a trackpad pinch must stray from scale 1 before it zooms, so a
+  /// two-finger scroll never nudges the zoom.
+  static const double _pinchThreshold = 0.02;
+
+  /// Pinches in progress, by pointer device.
+  final Map<int, _Pinch> _pinches = {};
+
+  /// Zoom change for a Ctrl+wheel delta: [FlutterZoomViewport.zoomStep] per
+  /// full notch, proportionally less for finer deltas, at most one step per
+  /// event so that platforms with larger notches still move one step.
+  double _wheelZoomDelta(double scrollDeltaY) =>
+      (-scrollDeltaY / _wheelNotchDelta).clamp(-1.0, 1.0) * widget.zoomStep;
+
+  /// The web engine turns Ctrl+wheel and trackpad pinches into scale signals
+  /// of `exp(-deltaY / 200)`; this gives that delta back.
+  static double _scaleSignalDelta(double scale) => -200 * math.log(scale);
+
   void _interceptPointerData(ui.PointerDataPacket packet) {
-    if (!_isZoomModifierPressed) {
+    final modifierPressed = _isZoomModifierPressed;
+    List<ui.PointerData>? kept;
+    for (var i = 0; i < packet.data.length; i++) {
+      final data = packet.data[i];
+      final replacement = _takeZoomGesture(data, modifierPressed);
+      if (identical(replacement, data) && kept == null) continue;
+      kept ??= packet.data.sublist(0, i);
+      if (replacement != null) kept.add(replacement);
+    }
+    if (kept == null) {
       _forwardPointerData?.call(packet);
-      return;
-    }
-    final kept = <ui.PointerData>[];
-    for (final data in packet.data) {
-      if (data.signalKind == ui.PointerSignalKind.scroll) {
-        if (data.scrollDeltaY != 0) {
-          _setZoom(_zoom + (data.scrollDeltaY < 0 ? 1 : -1) * widget.zoomStep);
-        }
-      } else {
-        kept.add(data);
-      }
-    }
-    if (kept.isNotEmpty) {
+    } else if (kept.isNotEmpty) {
       _forwardPointerData?.call(ui.PointerDataPacket(data: kept));
     }
+  }
+
+  /// Zooms for [data] when it is a zoom gesture. Returns what the widgets
+  /// below still receive: [data] itself, a copy without the pinch, or null
+  /// when the zoom consumed it.
+  ui.PointerData? _takeZoomGesture(ui.PointerData data, bool modifierPressed) {
+    switch (data.signalKind) {
+      case ui.PointerSignalKind.scroll when modifierPressed:
+        if (data.scrollDeltaY != 0) {
+          _setZoom(_zoom + _wheelZoomDelta(data.scrollDeltaY));
+        }
+        return null;
+      case ui.PointerSignalKind.scale:
+        if (data.scale > 0 && data.scale != 1) {
+          _setZoom(_zoom + _wheelZoomDelta(_scaleSignalDelta(data.scale)));
+        }
+        return null;
+      default:
+        break;
+    }
+    switch (data.change) {
+      case ui.PointerChange.panZoomStart:
+        _pinches[data.device] = _Pinch();
+        return data;
+      case ui.PointerChange.panZoomUpdate:
+        return _pinchUpdate(data);
+      case ui.PointerChange.panZoomEnd:
+        _pinches.remove(data.device);
+        return data;
+      default:
+        return data;
+    }
+  }
+
+  /// Trackpad pinches (Windows precision touchpads, macOS) arrive as pan/zoom
+  /// updates whose scale counts from the start of the gesture. The pinch
+  /// zooms the app; the widgets below keep the two-finger pan but never see
+  /// the scale, so an InteractiveViewer under the cursor cannot claim it.
+  ui.PointerData _pinchUpdate(ui.PointerData data) {
+    final pinch = _pinches[data.device];
+    if (data.scale == 1 && !(pinch?.zooming ?? false)) return data;
+    if (pinch == null || data.scale <= 0) return _withPan(data, scale: 1);
+    if (!pinch.zooming && (data.scale - 1).abs() >= _pinchThreshold) {
+      pinch
+        ..zooming = true
+        ..startZoom = _zoom
+        ..startScale = data.scale
+        ..panX = data.panX
+        ..panY = data.panY;
+    }
+    if (!pinch.zooming) return _withPan(data, scale: 1);
+    _setZoom(pinch.startZoom * data.scale / pinch.startScale);
+    // The content holds still while it is being pinched.
+    return _withPan(data, scale: 1, panX: pinch.panX, panY: pinch.panY);
+  }
+
+  static ui.PointerData _withPan(
+    ui.PointerData data, {
+    required double scale,
+    double? panX,
+    double? panY,
+  }) {
+    final frozen = panX != null;
+    return ui.PointerData(
+      viewId: data.viewId,
+      embedderId: data.embedderId,
+      timeStamp: data.timeStamp,
+      change: data.change,
+      kind: data.kind,
+      signalKind: data.signalKind,
+      device: data.device,
+      pointerIdentifier: data.pointerIdentifier,
+      physicalX: data.physicalX,
+      physicalY: data.physicalY,
+      physicalDeltaX: data.physicalDeltaX,
+      physicalDeltaY: data.physicalDeltaY,
+      buttons: data.buttons,
+      obscured: data.obscured,
+      synthesized: data.synthesized,
+      pressure: data.pressure,
+      pressureMin: data.pressureMin,
+      pressureMax: data.pressureMax,
+      distance: data.distance,
+      distanceMax: data.distanceMax,
+      size: data.size,
+      radiusMajor: data.radiusMajor,
+      radiusMinor: data.radiusMinor,
+      radiusMin: data.radiusMin,
+      radiusMax: data.radiusMax,
+      orientation: data.orientation,
+      tilt: data.tilt,
+      platformData: data.platformData,
+      scrollDeltaX: data.scrollDeltaX,
+      scrollDeltaY: data.scrollDeltaY,
+      panX: panX ?? data.panX,
+      panY: panY ?? data.panY,
+      panDeltaX: frozen ? 0 : data.panDeltaX,
+      panDeltaY: frozen ? 0 : data.panDeltaY,
+      scale: scale,
+      rotation: data.rotation,
+    );
   }
 
   @override
@@ -108,7 +230,11 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
   }
 
   void _setZoom(double value, {bool reflowNow = false}) {
-    final next = value.clamp(widget.minimumZoom, widget.maximumZoom).toDouble();
+    // Rounded so that fractional wheel deltas do not pile up float noise.
+    final next =
+        (value.clamp(widget.minimumZoom, widget.maximumZoom) * 1e6)
+            .roundToDouble() /
+        1e6;
     if (next == _zoom) return;
     _reflowTimer?.cancel();
     final reflow = reflowNow || widget.reflowDelay == Duration.zero;
@@ -135,16 +261,15 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
     GestureBinding.instance.pointerSignalResolver.register(event, (
       resolvedEvent,
     ) {
-      final double direction;
+      final double scrollDeltaY;
       if (resolvedEvent is PointerScaleEvent) {
-        if (resolvedEvent.scale == 1) return;
-        direction = resolvedEvent.scale > 1 ? 1 : -1;
+        if (resolvedEvent.scale <= 0 || resolvedEvent.scale == 1) return;
+        scrollDeltaY = _scaleSignalDelta(resolvedEvent.scale);
       } else {
-        final scrollEvent = resolvedEvent as PointerScrollEvent;
-        if (scrollEvent.scrollDelta.dy == 0) return;
-        direction = scrollEvent.scrollDelta.dy < 0 ? 1 : -1;
+        scrollDeltaY = (resolvedEvent as PointerScrollEvent).scrollDelta.dy;
+        if (scrollDeltaY == 0) return;
       }
-      _setZoom(_zoom + direction * widget.zoomStep);
+      _setZoom(_zoom + _wheelZoomDelta(scrollDeltaY));
     });
   }
 
@@ -226,6 +351,14 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
       ),
     );
   }
+}
+
+class _Pinch {
+  bool zooming = false;
+  double startZoom = 1;
+  double startScale = 1;
+  double panX = 0;
+  double panY = 0;
 }
 
 class _ResetZoomIntent extends Intent {
