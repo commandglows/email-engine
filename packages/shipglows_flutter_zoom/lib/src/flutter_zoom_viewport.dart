@@ -322,16 +322,22 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
                   width: constraints.maxWidth,
                   height: constraints.maxHeight,
                   child: ClipRect(
-                    // While the wheel turns only this transform changes: the
-                    // content keeps its layout and its own layer, and is laid
-                    // out again once at the final size (see reflowDelay).
-                    child: Transform.scale(
+                    // The content size is set above the transform: a box
+                    // under it would keep the viewport size and, zoomed out,
+                    // reject hits on the right and bottom bands of the screen.
+                    child: OverflowBox(
                       alignment: Alignment.topLeft,
-                      scale: _zoom,
-                      child: FractionallySizedBox(
+                      minWidth: constraints.maxWidth / _layoutZoom,
+                      maxWidth: constraints.maxWidth / _layoutZoom,
+                      minHeight: constraints.maxHeight / _layoutZoom,
+                      maxHeight: constraints.maxHeight / _layoutZoom,
+                      // While the wheel turns only this transform changes:
+                      // the content keeps its layout and its own layer, and
+                      // is laid out again once at the final size (see
+                      // reflowDelay).
+                      child: Transform.scale(
                         alignment: Alignment.topLeft,
-                        widthFactor: 1 / _layoutZoom,
-                        heightFactor: 1 / _layoutZoom,
+                        scale: _zoom,
                         child: RepaintBoundary(
                           child: SizedBox.expand(
                             key: const ValueKey(

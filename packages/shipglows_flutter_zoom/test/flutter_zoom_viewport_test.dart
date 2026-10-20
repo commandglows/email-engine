@@ -61,6 +61,32 @@ void main() {
     expect(changes, [1.1, 1.0]);
   });
 
+  testWidgets('zoomed out, the whole screen still receives taps', (
+    tester,
+  ) async {
+    final taps = <Offset>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FlutterZoomViewport(
+          initialZoom: 0.75,
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (event) => taps.add(event.localPosition),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+
+    final viewport = tester.getRect(
+      find.byKey(const ValueKey('shipglows-flutter-zoom-viewport')),
+    );
+    await tester.tapAt(viewport.bottomRight - const Offset(4, 4));
+
+    expect(taps, hasLength(1));
+    expect(taps.single.dx, greaterThan(viewport.width));
+  });
+
   testWidgets('ignores ordinary scrolling', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(home: FlutterZoomViewport(child: SizedBox.expand())),
