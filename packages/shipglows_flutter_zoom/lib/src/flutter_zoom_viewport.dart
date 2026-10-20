@@ -12,6 +12,7 @@ class FlutterZoomViewport extends StatefulWidget {
     super.key,
     required this.child,
     this.initialZoom = 1,
+    this.resetZoom,
     this.minimumZoom = 0.75,
     this.maximumZoom = 1.5,
     this.zoomStep = 0.1,
@@ -24,10 +25,18 @@ class FlutterZoomViewport extends StatefulWidget {
   }) : assert(minimumZoom > 0),
        assert(maximumZoom >= minimumZoom),
        assert(initialZoom >= minimumZoom && initialZoom <= maximumZoom),
+       assert(
+         resetZoom == null ||
+             (resetZoom >= minimumZoom && resetZoom <= maximumZoom),
+       ),
        assert(zoomStep > 0);
 
   final Widget child;
   final double initialZoom;
+
+  /// Zoom restored by the reset shortcuts; defaults to [initialZoom]. Set it
+  /// to 1 when [initialZoom] comes from a saved session.
+  final double? resetZoom;
   final double minimumZoom;
   final double maximumZoom;
   final double zoomStep;
@@ -304,7 +313,10 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
       child: Actions(
         actions: {
           _ResetZoomIntent: CallbackAction<_ResetZoomIntent>(
-            onInvoke: (_) => _setZoom(widget.initialZoom, reflowNow: true),
+            onInvoke: (_) => _setZoom(
+              widget.resetZoom ?? widget.initialZoom,
+              reflowNow: true,
+            ),
           ),
         },
         child: Focus(

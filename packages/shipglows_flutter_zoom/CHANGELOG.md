@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Add `resetZoom`, the zoom Ctrl/Command+0 goes back to, for apps that
+  restore a saved zoom through `initialZoom`.
 - Take Ctrl/Command+wheel from the raw pointer data so that scrollables and
   other wheel listeners under the cursor no longer swallow the zoom.
 - Report the zoomed logical size through MediaQuery so breakpoints follow it.
