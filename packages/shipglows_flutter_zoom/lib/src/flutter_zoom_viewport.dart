@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -35,11 +37,51 @@ class FlutterZoomViewport extends StatefulWidget {
 
 class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
   late double _zoom;
+  ui.PointerDataPacketCallback? _forwardPointerData;
 
   @override
   void initState() {
     super.initState();
     _zoom = widget.initialZoom;
+    // Scrollables, InteractiveViewers and custom wheel listeners sit deeper
+    // in the hit-test path and would claim Ctrl+wheel first: the zoom
+    // gesture is taken from the raw pointer data before any widget sees it.
+    final dispatcher = WidgetsBinding.instance.platformDispatcher;
+    _forwardPointerData = dispatcher.onPointerDataPacket;
+    dispatcher.onPointerDataPacket = _interceptPointerData;
+  }
+
+  @override
+  void dispose() {
+    final dispatcher = WidgetsBinding.instance.platformDispatcher;
+    if (dispatcher.onPointerDataPacket == _interceptPointerData) {
+      dispatcher.onPointerDataPacket = _forwardPointerData;
+    }
+    super.dispose();
+  }
+
+  static bool get _isZoomModifierPressed =>
+      HardwareKeyboard.instance.isControlPressed ||
+      HardwareKeyboard.instance.isMetaPressed;
+
+  void _interceptPointerData(ui.PointerDataPacket packet) {
+    if (!_isZoomModifierPressed) {
+      _forwardPointerData?.call(packet);
+      return;
+    }
+    final kept = <ui.PointerData>[];
+    for (final data in packet.data) {
+      if (data.signalKind == ui.PointerSignalKind.scroll) {
+        if (data.scrollDeltaY != 0) {
+          _setZoom(_zoom + (data.scrollDeltaY < 0 ? 1 : -1) * widget.zoomStep);
+        }
+      } else {
+        kept.add(data);
+      }
+    }
+    if (kept.isNotEmpty) {
+      _forwardPointerData?.call(ui.PointerDataPacket(data: kept));
+    }
   }
 
   @override
@@ -57,9 +99,7 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
 
   void _handlePointerSignal(PointerSignalEvent event) {
     final isModifiedScroll =
-        event is PointerScrollEvent &&
-        (HardwareKeyboard.instance.isControlPressed ||
-            HardwareKeyboard.instance.isMetaPressed);
+        event is PointerScrollEvent && _isZoomModifierPressed;
     if (!isModifiedScroll && event is! PointerScaleEvent) return;
 
     GestureBinding.instance.pointerSignalResolver.register(event, (
@@ -76,6 +116,25 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
       }
       _setZoom(_zoom + direction * widget.zoomStep);
     });
+  }
+
+  /// Reports the logical size the zoomed content really has, so that
+  /// breakpoints read through MediaQuery follow the zoom.
+  Widget _zoomedMediaQuery(BuildContext context, Widget child) {
+    final media = MediaQuery.maybeOf(context);
+    if (media == null || _zoom == 1) return child;
+    return MediaQuery(
+      data: media.copyWith(
+        size: media.size / _zoom,
+        // Images keep decoding at the real physical resolution.
+        devicePixelRatio: media.devicePixelRatio * _zoom,
+        padding: media.padding / _zoom,
+        viewPadding: media.viewPadding / _zoom,
+        viewInsets: media.viewInsets / _zoom,
+        systemGestureInsets: media.systemGestureInsets / _zoom,
+      ),
+      child: child,
+    );
   }
 
   @override
@@ -116,7 +175,7 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
                         heightFactor: 1 / _zoom,
                         child: SizedBox.expand(
                           key: const ValueKey('shipglows-flutter-zoom-content'),
-                          child: widget.child,
+                          child: _zoomedMediaQuery(context, widget.child),
                         ),
                       ),
                     ),

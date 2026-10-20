@@ -1,3 +1,9 @@
+## Unreleased
+
+- Take Ctrl/Command+wheel from the raw pointer data so that scrollables and
+  other wheel listeners under the cursor no longer swallow the zoom.
+- Report the zoomed logical size through MediaQuery so breakpoints follow it.
+
 ## 0.1.0
 
 - Add app-wide Ctrl/Command+wheel and scale-event zoom.
