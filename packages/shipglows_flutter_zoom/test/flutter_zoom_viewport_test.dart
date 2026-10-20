@@ -39,6 +39,12 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump();
 
+    // The step is painted at once; the content is laid out again only once
+    // the wheel has paused.
+    expect(changes, [1.1]);
+    expect(workspaceScale(), 1);
+    await tester.pump(const Duration(milliseconds: 150));
+
     expect(workspaceScale(), closeTo(1.1, 0.001));
     expect(viewportSize(), initialSize);
     expect(changes, [1.1]);

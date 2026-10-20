@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -17,6 +18,7 @@ class FlutterZoomViewport extends StatefulWidget {
       SingleActivator(LogicalKeyboardKey.digit0, control: true),
       SingleActivator(LogicalKeyboardKey.digit0, meta: true),
     ],
+    this.reflowDelay = const Duration(milliseconds: 150),
     this.onZoomChanged,
   }) : assert(minimumZoom > 0),
        assert(maximumZoom >= minimumZoom),
@@ -29,6 +31,11 @@ class FlutterZoomViewport extends StatefulWidget {
   final double maximumZoom;
   final double zoomStep;
   final List<ShortcutActivator> resetShortcuts;
+
+  /// How long the zoom must stay still before the content is laid out again
+  /// at the new size. Until then each step only rescales what is painted,
+  /// so the wheel answers at once even when the app is costly to lay out.
+  final Duration reflowDelay;
   final ValueChanged<double>? onZoomChanged;
 
   @override
@@ -36,13 +43,20 @@ class FlutterZoomViewport extends StatefulWidget {
 }
 
 class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
+  /// Zoom painted on screen, updated on every step.
   late double _zoom;
+
+  /// Zoom the content is laid out for; catches up with [_zoom] once the
+  /// gesture pauses for [FlutterZoomViewport.reflowDelay].
+  late double _layoutZoom;
+  Timer? _reflowTimer;
   ui.PointerDataPacketCallback? _forwardPointerData;
 
   @override
   void initState() {
     super.initState();
     _zoom = widget.initialZoom;
+    _layoutZoom = _zoom;
     // Scrollables, InteractiveViewers and custom wheel listeners sit deeper
     // in the hit-test path and would claim Ctrl+wheel first: the zoom
     // gesture is taken from the raw pointer data before any widget sees it.
@@ -53,6 +67,7 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
 
   @override
   void dispose() {
+    _reflowTimer?.cancel();
     final dispatcher = WidgetsBinding.instance.platformDispatcher;
     if (dispatcher.onPointerDataPacket == _interceptPointerData) {
       dispatcher.onPointerDataPacket = _forwardPointerData;
@@ -88,13 +103,28 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
   void didUpdateWidget(FlutterZoomViewport oldWidget) {
     super.didUpdateWidget(oldWidget);
     _zoom = _zoom.clamp(widget.minimumZoom, widget.maximumZoom).toDouble();
+    _reflowTimer?.cancel();
+    _layoutZoom = _zoom;
   }
 
-  void _setZoom(double value) {
+  void _setZoom(double value, {bool reflowNow = false}) {
     final next = value.clamp(widget.minimumZoom, widget.maximumZoom).toDouble();
     if (next == _zoom) return;
-    setState(() => _zoom = next);
+    _reflowTimer?.cancel();
+    final reflow = reflowNow || widget.reflowDelay == Duration.zero;
+    setState(() {
+      _zoom = next;
+      if (reflow) _layoutZoom = next;
+    });
+    if (!reflow && _layoutZoom != next) {
+      _reflowTimer = Timer(widget.reflowDelay, _reflow);
+    }
     widget.onZoomChanged?.call(next);
+  }
+
+  void _reflow() {
+    if (!mounted || _layoutZoom == _zoom) return;
+    setState(() => _layoutZoom = _zoom);
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
@@ -122,16 +152,17 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
   /// breakpoints read through MediaQuery follow the zoom.
   Widget _zoomedMediaQuery(BuildContext context, Widget child) {
     final media = MediaQuery.maybeOf(context);
-    if (media == null || _zoom == 1) return child;
+    final zoom = _layoutZoom;
+    if (media == null || zoom == 1) return child;
     return MediaQuery(
       data: media.copyWith(
-        size: media.size / _zoom,
+        size: media.size / zoom,
         // Images keep decoding at the real physical resolution.
-        devicePixelRatio: media.devicePixelRatio * _zoom,
-        padding: media.padding / _zoom,
-        viewPadding: media.viewPadding / _zoom,
-        viewInsets: media.viewInsets / _zoom,
-        systemGestureInsets: media.systemGestureInsets / _zoom,
+        devicePixelRatio: media.devicePixelRatio * zoom,
+        padding: media.padding / zoom,
+        viewPadding: media.viewPadding / zoom,
+        viewInsets: media.viewInsets / zoom,
+        systemGestureInsets: media.systemGestureInsets / zoom,
       ),
       child: child,
     );
@@ -148,7 +179,7 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
       child: Actions(
         actions: {
           _ResetZoomIntent: CallbackAction<_ResetZoomIntent>(
-            onInvoke: (_) => _setZoom(widget.initialZoom),
+            onInvoke: (_) => _setZoom(widget.initialZoom, reflowNow: true),
           ),
         },
         child: Focus(
@@ -166,16 +197,23 @@ class _FlutterZoomViewportState extends State<FlutterZoomViewport> {
                   width: constraints.maxWidth,
                   height: constraints.maxHeight,
                   child: ClipRect(
+                    // While the wheel turns only this transform changes: the
+                    // content keeps its layout and its own layer, and is laid
+                    // out again once at the final size (see reflowDelay).
                     child: Transform.scale(
                       alignment: Alignment.topLeft,
                       scale: _zoom,
                       child: FractionallySizedBox(
                         alignment: Alignment.topLeft,
-                        widthFactor: 1 / _zoom,
-                        heightFactor: 1 / _zoom,
-                        child: SizedBox.expand(
-                          key: const ValueKey('shipglows-flutter-zoom-content'),
-                          child: _zoomedMediaQuery(context, widget.child),
+                        widthFactor: 1 / _layoutZoom,
+                        heightFactor: 1 / _layoutZoom,
+                        child: RepaintBoundary(
+                          child: SizedBox.expand(
+                            key: const ValueKey(
+                              'shipglows-flutter-zoom-content',
+                            ),
+                            child: _zoomedMediaQuery(context, widget.child),
+                          ),
                         ),
                       ),
                     ),
