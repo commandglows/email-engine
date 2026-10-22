@@ -48,7 +48,7 @@ documentation routing belong here.
 | Authenticated operator app | Server-backed source reader, Gmail support and campaign controls | `app/README.md` and mapped CommandGlows API contracts |
 | Source sidebar | Provider-neutral source and email review, keyboard processing, categories, and host callbacks | `packages/source_sidebar_flutter/README.md` |
 | Newsletter Studio and support cockpit | Provider-neutral newsletter composition and support presentation models/workspace | `packages/newsletter_studio_flutter/README.md` |
-| Shared zoom | Whole-workspace Flutter web/desktop zoom behavior | `packages/shipglows_flutter_zoom/README.md` |
+| Shared zoom | Whole-workspace Flutter web/desktop zoom behavior, moved to `shipglows-ui-engine` | `../shipglows-ui-engine/flutter/shipglows_flutter_zoom/README.md` |
 | Demo | Synthetic integration and visual/proof host for all packages | Root `README.md` |
 | Web build | Reproducible hosted demo build only | Root `README.md` and `scripts/vercel-build.sh` |
 

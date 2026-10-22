@@ -13,7 +13,7 @@ dependencies:
   flutter:
     sdk: flutter
   shipglows_flutter_zoom:
-    path: ../shipglows_flutter_zoom
+    path: ../../../shipglows-ui-engine/flutter/shipglows_flutter_zoom
 
 dev_dependencies:
   flutter_test:

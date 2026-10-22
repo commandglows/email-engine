@@ -16,7 +16,6 @@ docs_impact: yes
 linked_systems:
   - packages/source_sidebar_flutter
   - packages/newsletter_studio_flutter
-  - packages/shipglows_flutter_zoom
   - demo
   - scripts/vercel-build.sh
   - shipglows_data/technical/README.md
@@ -60,9 +59,6 @@ An unmatched tracked code area is `needs review` until this map is extended.
 | `packages/newsletter_studio_flutter/lib/**` | Newsletter composition, review, preview, delivery handoff, models, and host callbacks | `packages/newsletter_studio_flutter/README.md` | `design-system-authority.md`; active newsletter spec | Public API, shortcut, workflow, validation, delivery boundary, layout, or styling behavior changes | `cd packages/newsletter_studio_flutter && flutter analyze && flutter test` |
 | `packages/newsletter_studio_flutter/test/**` | Durable Newsletter Studio behavior proof | `packages/newsletter_studio_flutter/README.md` | Active newsletter spec | Accepted behavior, supported scenario, or documented proof claim changes | `cd packages/newsletter_studio_flutter && flutter test` |
 | `packages/newsletter_studio_flutter/pubspec.yaml` | Package identity, SDK range, and dependencies | `packages/newsletter_studio_flutter/README.md` | Root `README.md` | Consumer requirements, dependency model, installation path, or supported runtime changes | `cd packages/newsletter_studio_flutter && flutter pub get && flutter analyze && flutter test` |
-| `packages/shipglows_flutter_zoom/lib/**` | Shared whole-workspace zoom and reset behavior | `packages/shipglows_flutter_zoom/README.md` | `design-system-authority.md` | Zoom API, supported input, bounds, scaling, viewport, or reset behavior changes | `cd packages/shipglows_flutter_zoom && flutter analyze && flutter test` |
-| `packages/shipglows_flutter_zoom/test/**` | Durable shared-zoom proof | `packages/shipglows_flutter_zoom/README.md` | None; tests are the proof owner | Supported scenario or documented proof claim changes | `cd packages/shipglows_flutter_zoom && flutter test` |
-| `packages/shipglows_flutter_zoom/pubspec.yaml` | Package identity, SDK range, and dependencies | `packages/shipglows_flutter_zoom/README.md` | Root `README.md` | Consumer requirements, dependency model, installation path, or supported runtime changes | `cd packages/shipglows_flutter_zoom && flutter pub get && flutter analyze && flutter test` |
 | `demo/lib/**` | Synthetic integration, theme mapping, and provider-free host behavior | Root `README.md` | `design-system-authority.md`; affected package README | Demonstrated capability, synthetic/real boundary, package integration, theme mapping, or visible workflow changes | `cd demo && flutter analyze && flutter test` |
 | `demo/test/**` | Cross-package integration proof | Root `README.md` | Affected package README and active spec | Demonstrated scenario or repository validation claim changes | `cd demo && flutter test` |
 | `demo/pubspec.yaml` | Demo SDK and local package composition | Root `README.md` | Package READMEs | Local dependency graph, runtime requirement, or preview command changes | `cd demo && flutter pub get && flutter analyze && flutter test` |
