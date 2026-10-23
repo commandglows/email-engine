@@ -1,10 +1,10 @@
 ---
 artifact: code_docs_map
 metadata_schema_version: "1.0"
-artifact_version: "1.1.0"
+artifact_version: "1.2.0"
 project: email-sidebar-app
 created: "2026-09-03"
-updated: "2026-10-07"
+updated: "2026-10-23"
 status: reviewed
 source_skill: sg-docs
 scope: repository-code-to-documentation-routing
@@ -22,7 +22,7 @@ linked_systems:
   - shipglows_data/technical/design-system-authority.md
 depends_on:
   - artifact: shipglows_data/technical/README.md
-    artifact_version: "1.0.0"
+    artifact_version: "1.2.0"
     required_status: reviewed
   - artifact: shipglows_data/technical/design-system-authority.md
     artifact_version: "1.3.0"
@@ -32,6 +32,7 @@ evidence:
   - Major tracked code, configuration, public documentation, and test paths inspected on 2026-09-03.
   - Keyboard-first email workspace verified with 19 package tests and 7 demo tests.
   - 2026-10-07: mapped authenticated support adapters, enriched Gmail controls, and their CommandGlows API contract to the app README and support specification.
+  - "2026-10-23: removed the shipglows_flutter_zoom rows; the package moved to shipglows-ui-engine/flutter, which owns its docs and proof."
 next_review: "2026-12-03"
 next_step: apply this map to every code-changing documentation reflection
 ---

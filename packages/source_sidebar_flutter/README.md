@@ -112,11 +112,13 @@ labels; the package does not translate them into provider API concepts.
 Ctrl/Command+mouse wheel scales the complete workspace, including layout,
 icons, spacing, and text. Responsive breakpoints are recalculated against the
 zoomed logical viewport, ordinary wheel scrolling is left untouched, and the
-ambient Flutter text scaler continues to apply. Ctrl/Command+0 resets the
-workspace to `SourceSidebarStyle.initialZoom`.
+ambient Flutter text scaler continues to apply. Ctrl/Command+= and
+Ctrl/Command+- step the zoom by 5 %, and Ctrl/Command+0 resets the workspace
+to `SourceSidebarStyle.initialZoom`.
 
-The behavior is supplied by the shared `shipglows_flutter_zoom` package so
-other Flutter applications can adopt the same tested viewport independently.
+The behavior is supplied by the shared `shipglows_flutter_zoom` package
+(`shipglows-ui-engine/flutter/shipglows_flutter_zoom`) so other Flutter
+applications can adopt the same tested viewport independently.
 
 Hosts can configure `minimumZoom`, `maximumZoom`, `initialZoom`, and `zoomStep`
 through `SourceSidebarStyle`. They can replace or disable the reset shortcut

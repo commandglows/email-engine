@@ -1,10 +1,10 @@
 ---
 artifact: technical_context
 metadata_schema_version: "1.0"
-artifact_version: "1.1.0"
+artifact_version: "1.2.0"
 project: email-sidebar-app
 created: "2026-09-03"
-updated: "2026-10-07"
+updated: "2026-10-23"
 status: reviewed
 source_skill: sg-docs
 scope: technical-documentation-entrypoint
@@ -21,6 +21,7 @@ supersedes: []
 evidence:
   - Repository code, package READMEs, tests, and validation commands inspected on 2026-09-03.
   - 2026-10-07: authenticated operator app added as a major technical surface, routed to the app guide and CommandGlows API contract.
+  - "2026-10-23: shared zoom moved to shipglows-ui-engine/flutter/shipglows_flutter_zoom; its entry now points there."
 next_review: "2027-03-03"
 next_step: keep mappings aligned with code ownership
 ---
