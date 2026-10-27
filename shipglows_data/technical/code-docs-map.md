@@ -1,10 +1,10 @@
 ---
 artifact: code_docs_map
 metadata_schema_version: "1.0"
-artifact_version: "1.2.0"
+artifact_version: "1.2.1"
 project: email-sidebar-app
 created: "2026-09-03"
-updated: "2026-10-23"
+updated: "2026-10-28"
 status: reviewed
 source_skill: sg-docs
 scope: repository-code-to-documentation-routing
@@ -58,6 +58,7 @@ An unmatched tracked code area is `needs review` until this map is extended.
 | `packages/source_sidebar_flutter/test/**` | Durable source-sidebar behavior proof | `packages/source_sidebar_flutter/README.md` | Active source-sidebar spec | Accepted behavior, supported scenario, or documented proof claim changes; pure refactoring of equivalent assertions is non-impacting | `cd packages/source_sidebar_flutter && flutter test` |
 | `packages/source_sidebar_flutter/pubspec.yaml` | Package identity, SDK range, and dependencies | `packages/source_sidebar_flutter/README.md` | Root `README.md` | Consumer requirements, dependency model, installation path, or supported runtime changes | `cd packages/source_sidebar_flutter && flutter pub get && flutter analyze && flutter test` |
 | `packages/newsletter_studio_flutter/lib/**` | Newsletter composition, review, preview, delivery handoff, models, and host callbacks | `packages/newsletter_studio_flutter/README.md` | `design-system-authority.md`; active newsletter spec | Public API, shortcut, workflow, validation, delivery boundary, layout, or styling behavior changes | `cd packages/newsletter_studio_flutter && flutter analyze && flutter test` |
+| `packages/email_mailbox_client/lib/**` | Shared mailbox client and `CentralCampaignBridgeApi` for product-update drafts through the CommandGlows bridge | `packages/email_mailbox_client/README.md` | CommandGlows `shipglows_data/technical/central-email-api-contract.md` (campaign bridge section) | Bridge route, request/response shape, idempotency, or limit changes | `cd packages/email_mailbox_client && flutter analyze && flutter test` |
 | `packages/newsletter_studio_flutter/test/**` | Durable Newsletter Studio behavior proof | `packages/newsletter_studio_flutter/README.md` | Active newsletter spec | Accepted behavior, supported scenario, or documented proof claim changes | `cd packages/newsletter_studio_flutter && flutter test` |
 | `packages/newsletter_studio_flutter/pubspec.yaml` | Package identity, SDK range, and dependencies | `packages/newsletter_studio_flutter/README.md` | Root `README.md` | Consumer requirements, dependency model, installation path, or supported runtime changes | `cd packages/newsletter_studio_flutter && flutter pub get && flutter analyze && flutter test` |
 | `demo/lib/**` | Synthetic integration, theme mapping, and provider-free host behavior | Root `README.md` | `design-system-authority.md`; affected package README | Demonstrated capability, synthetic/real boundary, package integration, theme mapping, or visible workflow changes | `cd demo && flutter analyze && flutter test` |

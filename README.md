@@ -2,7 +2,7 @@
 
 The default interface is one shared email list and reader: **Sources** (Readwise Reader),
 **Service client** (owned Gmail accounts with Mutant Mail relay routing), and
-**Diffusion** (Postmark campaigns). The three groups appear in this order in one
+**Diffusion** (central campaigns through CommandGlows, delivered by Postmark). The three groups appear in this order in one
 scrolling list. A single sidebar jumps to each group; contextual reader actions
 handle support replies and campaign editing. There is no separate overview.
 Support includes safe HTML reading, reply attachments, verified-relay reply all
@@ -56,6 +56,10 @@ as inbox-rendering or deliverability proof.
 - `packages/source_sidebar_flutter`: reusable Flutter presentation package.
 - `packages/newsletter_studio_flutter`: reusable newsletter composition and
   review package with provider-neutral host hooks.
+- `packages/email_mailbox_client`: shared mailbox client. `CentralCampaignBridgeApi`
+  drafts product-update campaigns through the CommandGlows campaign bridge
+  (`/api/bridge/email-campaigns/firebase`); approval stays in the CommandGlows
+  console and the client holds no provider credentials.
 - `demo`: unified Flutter Web preview consuming both packages by local path.
 - `app`: same-origin authenticated newsletter operator; no provider credentials.
 - `scripts/install-operator-web.ps1`: install an already-built operator artifact
