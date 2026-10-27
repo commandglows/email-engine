@@ -53,6 +53,23 @@ Map<String, dynamic> _completedWithDelivery() {
   return receipt;
 }
 
+/// A receipt whose review reports how far the snapshot has got.
+Map<String, dynamic> _snapshotReceipt({
+  required bool complete,
+  int eligible = 0,
+}) => {
+  ..._campaign(),
+  'review': {
+    'id': 'camp_1:3',
+    'complete': complete,
+    'eligible_count': eligible,
+    'excluded_count': 0,
+    'report_id': 'rep_1',
+    'text': 'Aperçu',
+    'blocking_checks': <Object>[],
+  },
+};
+
 CentralCampaignBridgeApi _api(
   Future<http.Response> Function(http.Request request) handler, {
   String? token = _token,
@@ -86,7 +103,10 @@ void main() {
       );
     });
     final context = await api.context();
-    expect(context.businesses.map((b) => b.brand), ['ShipGlows', 'ContentGlows']);
+    expect(context.businesses.map((b) => b.brand), [
+      'ShipGlows',
+      'ContentGlows',
+    ]);
     expect(context.businesses.first.defaultAudience?.id, 'product-updates');
     expect(context.businesses.last.defaultAudience, isNull);
     expect(context.consoleUri.host, 'commandglows.test');
@@ -157,28 +177,31 @@ void main() {
     api.api.close();
   });
 
-  test('create posts a machine create with a bounded idempotency key', () async {
-    late Map<String, dynamic> sent;
-    final api = _api((request) async {
-      expect(request.method, 'POST');
-      expect(request.url.path, '$_base/campaigns');
-      final key = request.headers['Idempotency-Key']!;
-      expect(key.length, inInclusiveRange(16, 128));
-      sent = jsonDecode(request.body) as Map<String, dynamic>;
-      return _response(jsonEncode(_campaign()), 200);
-    });
-    final receipt = await api.create(
-      businessId: 'shipglows',
-      audienceId: 'product-updates',
-      draft: const ProductUpdateDraft(title: 'Nouveauté'),
-    );
-    expect(sent['operation'], 'create');
-    expect(sent.containsKey('expected_version'), isFalse);
-    expect(sent['audience_id'], 'product-updates');
-    expect(sent['locale'], 'fr');
-    expect(receipt.campaign.version, 3);
-    api.api.close();
-  });
+  test(
+    'create posts a machine create with a bounded idempotency key',
+    () async {
+      late Map<String, dynamic> sent;
+      final api = _api((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '$_base/campaigns');
+        final key = request.headers['Idempotency-Key']!;
+        expect(key.length, inInclusiveRange(16, 128));
+        sent = jsonDecode(request.body) as Map<String, dynamic>;
+        return _response(jsonEncode(_campaign()), 200);
+      });
+      final receipt = await api.create(
+        businessId: 'shipglows',
+        audienceId: 'product-updates',
+        draft: const ProductUpdateDraft(title: 'Nouveauté'),
+      );
+      expect(sent['operation'], 'create');
+      expect(sent.containsKey('expected_version'), isFalse);
+      expect(sent['audience_id'], 'product-updates');
+      expect(sent['locale'], 'fr');
+      expect(receipt.campaign.version, 3);
+      api.api.close();
+    },
+  );
 
   test('revise and snapshot carry the expected version', () async {
     final operations = <String>[];
@@ -285,39 +308,45 @@ void main() {
     api.api.close();
   });
 
-  test('repository filters the loaded page and refuses an empty title', () async {
-    final api = _api((request) async {
-      return _response(
-        jsonEncode({
-          'page': [
-            _campaign(id: 'camp_a'),
-            _completedWithDelivery(),
-          ],
-          'cursor': null,
-          'complete': true,
-        }),
-        200,
+  test(
+    'repository filters the loaded page and refuses an empty title',
+    () async {
+      final api = _api((request) async {
+        return _response(
+          jsonEncode({
+            'page': [_campaign(id: 'camp_a'), _completedWithDelivery()],
+            'cursor': null,
+            'complete': true,
+          }),
+          200,
+        );
+      });
+      final repository = CentralCampaignBridgeRepository(
+        api: api,
+        businessId: 'shipglows',
+        audienceId: 'product-updates',
       );
-    });
-    final repository = CentralCampaignBridgeRepository(
-      api: api,
-      businessId: 'shipglows',
-      audienceId: 'product-updates',
-    );
-    final drafts = await repository.list(status: NewsletterCampaignStatus.draft);
-    expect(drafts.items.map((c) => c.id), ['camp_a']);
-    final delivered = await repository.list(
-      status: NewsletterCampaignStatus.delivered,
-    );
-    expect(delivered.items.map((c) => c.id), ['camp_b']);
-    await expectLater(
-      repository.create(title: '   '),
-      throwsA(
-        isA<EmailApiException>().having((e) => e.code, 'code', 'invalid_input'),
-      ),
-    );
-    api.api.close();
-  });
+      final drafts = await repository.list(
+        status: NewsletterCampaignStatus.draft,
+      );
+      expect(drafts.items.map((c) => c.id), ['camp_a']);
+      final delivered = await repository.list(
+        status: NewsletterCampaignStatus.delivered,
+      );
+      expect(delivered.items.map((c) => c.id), ['camp_b']);
+      await expectLater(
+        repository.create(title: '   '),
+        throwsA(
+          isA<EmailApiException>().having(
+            (e) => e.code,
+            'code',
+            'invalid_input',
+          ),
+        ),
+      );
+      api.api.close();
+    },
+  );
 
   group('ProductUpdateDraft', () {
     test('splits Markdown on blank lines into rich_text blocks', () {
@@ -364,7 +393,7 @@ void main() {
       final huge = List.filled(5000, 'x'.padRight(10, 'x')).join('\n\n');
       expect(
         ProductUpdateDraft(title: 'Nouveauté', bodyMarkdown: huge).validate(),
-        contains('Le corps dépasse la limite de 48 000 caractères.'),
+        contains('Le corps dépasse la limite de 48 000 octets.'),
       );
     });
 
@@ -381,6 +410,457 @@ void main() {
       expect(fields['blocks'], [
         {'id': 'body-1', 'type': 'rich_text', 'text': 'Un paragraphe.'},
       ]);
+    });
+  });
+
+  group('campaign bridge contract', () {
+    test(
+      'snapshotUntilComplete pages to the end with a fresh key per page',
+      () async {
+        final keys = <String>[];
+        var calls = 0;
+        final api = _api((request) async {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['operation'], 'snapshot');
+          expect(body['expected_version'], 3);
+          keys.add(request.headers['Idempotency-Key']!);
+          calls += 1;
+          return _response(
+            jsonEncode(_snapshotReceipt(complete: calls == 3, eligible: calls)),
+            200,
+          );
+        });
+        final progress = <int>[];
+        final receipt = await api.snapshotUntilComplete(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 3,
+          onProgress: (page, _) => progress.add(page),
+        );
+        expect(receipt.review!.complete, isTrue);
+        expect(receipt.review!.eligibleCount, 3);
+        expect(progress, [1, 2, 3]);
+        expect(keys.toSet(), hasLength(3));
+        api.api.close();
+      },
+    );
+
+    test('snapshotUntilComplete stops at the page cap', () async {
+      var calls = 0;
+      final api = _api((_) async {
+        calls += 1;
+        return _response(jsonEncode(_snapshotReceipt(complete: false)), 200);
+      });
+      await expectLater(
+        api.snapshotUntilComplete(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 3,
+          maxPages: 2,
+        ),
+        throwsA(
+          isA<EmailApiException>().having(
+            (e) => e.code,
+            'code',
+            'snapshot_page_limit',
+          ),
+        ),
+      );
+      expect(calls, 2);
+      api.api.close();
+    });
+
+    test('a 429 waits for Retry-After and retries the same page', () async {
+      var calls = 0;
+      final waits = <Duration>[];
+      final api = _api((_) async {
+        calls += 1;
+        if (calls == 1) {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'error': {'code': 'rate_limited'},
+              }),
+            ),
+            429,
+            headers: {
+              'content-type': 'application/json; charset=utf-8',
+              'Retry-After': '7',
+            },
+          );
+        }
+        return _response(jsonEncode(_snapshotReceipt(complete: true)), 200);
+      });
+      final receipt = await api.snapshotUntilComplete(
+        businessId: 'shipglows',
+        campaignId: 'camp_1',
+        expectedVersion: 3,
+        wait: (delay) async => waits.add(delay),
+      );
+      expect(receipt.review!.complete, isTrue);
+      expect(calls, 2);
+      expect(waits, [const Duration(seconds: 7)]);
+      api.api.close();
+    });
+
+    test('a 429 with a non-JSON body is a typed rate limit', () async {
+      final api = _api(
+        (_) async => http.Response(
+          '<html>busy</html>',
+          429,
+          headers: {'Retry-After': '12'},
+        ),
+      );
+      await expectLater(
+        api.snapshot(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 1,
+        ),
+        throwsA(
+          isA<EmailApiException>()
+              .having((e) => e.code, 'code', 'rate_limited')
+              .having(
+                (e) => e.retryAfter,
+                'retryAfter',
+                const Duration(seconds: 12),
+              ),
+        ),
+      );
+      api.api.close();
+    });
+
+    test(
+      'a 5xx with a non-JSON body is an outage that keeps its key',
+      () async {
+        final keys = <String>[];
+        var calls = 0;
+        final api = _api((request) async {
+          keys.add(request.headers['Idempotency-Key']!);
+          calls += 1;
+          if (calls == 1) return http.Response('<html>oops</html>', 502);
+          return _response(jsonEncode(_snapshotReceipt(complete: true)), 200);
+        });
+        await expectLater(
+          api.snapshot(
+            businessId: 'shipglows',
+            campaignId: 'camp_1',
+            expectedVersion: 1,
+          ),
+          throwsA(
+            isA<EmailApiException>().having(
+              (e) => e.code,
+              'code',
+              'service_unavailable',
+            ),
+          ),
+        );
+        // The identical retry reuses the key: the first attempt may have run.
+        await api.snapshot(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 1,
+        );
+        expect(keys[1], keys[0]);
+        api.api.close();
+      },
+    );
+
+    test(
+      'a refusal releases its key, so an identical retry gets a new one',
+      () async {
+        final keys = <String>[];
+        var calls = 0;
+        final api = _api((request) async {
+          keys.add(request.headers['Idempotency-Key']!);
+          calls += 1;
+          if (calls == 1) {
+            return _response(
+              jsonEncode({
+                'error': {'code': 'invalid_input'},
+              }),
+              422,
+            );
+          }
+          return _response(jsonEncode(_snapshotReceipt(complete: true)), 200);
+        });
+        await expectLater(
+          api.snapshot(
+            businessId: 'shipglows',
+            campaignId: 'camp_1',
+            expectedVersion: 1,
+          ),
+          throwsA(isA<EmailApiException>()),
+        );
+        await api.snapshot(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 1,
+        );
+        expect(keys[1], isNot(keys[0]));
+        api.api.close();
+      },
+    );
+
+    test('a token failure leaves no pending command behind', () async {
+      final api = _api((_) async => _response('{}', 200), token: null);
+      // Each call names another campaign, so each would hold its own key. Had
+      // the keys stayed pending, the 128-command limit would trip.
+      for (var i = 0; i < 130; i++) {
+        await expectLater(
+          api.snapshot(
+            businessId: 'shipglows',
+            campaignId: 'camp_$i',
+            expectedVersion: 1,
+          ),
+          throwsA(
+            isA<EmailApiException>().having(
+              (e) => e.code,
+              'code',
+              'auth_required',
+            ),
+          ),
+        );
+      }
+      api.api.close();
+    });
+
+    test(
+      'an oversized command is refused before any request, in UTF-8 bytes',
+      () async {
+        var requests = 0;
+        final api = _api((_) async {
+          requests += 1;
+          return _response('{}', 200);
+        });
+        // Three 20 000-character blocks pass the character limits, but each euro
+        // sign takes three bytes: the body is far over the 64 KiB bridge cap.
+        final euro = '€' * 20000;
+        await expectLater(
+          api.revise(
+            businessId: 'shipglows',
+            campaignId: 'camp_1',
+            expectedVersion: 1,
+            audienceId: 'product-updates',
+            draft: ProductUpdateDraft(
+              title: 'Nouveauté',
+              bodyMarkdown: [euro, euro, euro].join('\n\n'),
+            ),
+          ),
+          throwsA(
+            isA<EmailApiException>().having(
+              (e) => e.code,
+              'code',
+              'payload_too_large',
+            ),
+          ),
+        );
+        expect(requests, 0);
+        api.api.close();
+      },
+    );
+
+    test('the draft validator counts blocks in UTF-8 bytes', () {
+      // 18 002 characters but 54 006 bytes: over the 48 000-byte blocks cap.
+      final euro = '€' * 9000;
+      expect(
+        ProductUpdateDraft(
+          title: 'Nouveauté',
+          bodyMarkdown: '$euro\n\n$euro',
+        ).validate(),
+        contains('Le corps dépasse la limite de 48 000 octets.'),
+      );
+    });
+
+    test('a server 413 maps to payload_too_large', () async {
+      final api = _api((_) async => http.Response('too large', 413));
+      await expectLater(
+        api.snapshot(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 1,
+        ),
+        throwsA(
+          isA<EmailApiException>().having(
+            (e) => e.code,
+            'code',
+            'payload_too_large',
+          ),
+        ),
+      );
+      api.api.close();
+    });
+
+    test('list asks for at most ten campaigns', () async {
+      final limits = <String?>[];
+      final api = _api((request) async {
+        limits.add(request.url.queryParameters['limit']);
+        return _response(jsonEncode({'page': <Object>[], 'cursor': null}), 200);
+      });
+      await api.listCampaigns(businessId: 'shipglows');
+      await api.listCampaigns(businessId: 'shipglows', limit: 50);
+      expect(limits, ['10', '10']);
+      api.api.close();
+    });
+
+    test(
+      'the default audience is the product-updates one, never a fallback',
+      () {
+        const newsletter = ProductUpdateAudience(
+          id: 'newsletter',
+          purpose: 'Infolettre',
+        );
+        const updates = ProductUpdateAudience(
+          id: 'product-updates',
+          purpose: 'Mises à jour produit',
+        );
+        const byPurpose = ProductUpdateAudience(
+          id: 'maj',
+          purpose: 'Product_Updates',
+        );
+        ProductUpdateBusiness business(List<ProductUpdateAudience> audiences) =>
+            ProductUpdateBusiness(
+              id: 'shipglows',
+              brand: 'ShipGlows',
+              audiences: audiences,
+            );
+
+        expect(business([]).defaultAudience, isNull);
+        expect(business([newsletter]).defaultAudience, isNull);
+        expect(
+          business([newsletter, updates]).defaultAudience?.id,
+          'product-updates',
+        );
+        expect(business([newsletter, byPurpose]).defaultAudience?.id, 'maj');
+      },
+    );
+
+    test('campaign states map to the studio statuses', () {
+      NewsletterCampaignStatus statusOf(String state) => newsletterStatusOf(
+        productUpdateCampaignFromJson(_campaign(state: state)),
+      );
+
+      expect(statusOf('draft'), NewsletterCampaignStatus.draft);
+      expect(statusOf('scheduled'), NewsletterCampaignStatus.scheduled);
+      expect(statusOf('sending'), NewsletterCampaignStatus.sending);
+      expect(statusOf('running'), NewsletterCampaignStatus.sending);
+      expect(statusOf('fanout_complete'), NewsletterCampaignStatus.sending);
+      expect(statusOf('paused'), NewsletterCampaignStatus.suspended);
+      expect(statusOf('suspended'), NewsletterCampaignStatus.suspended);
+      expect(statusOf('cancelled'), NewsletterCampaignStatus.cancelled);
+      expect(statusOf('completed'), NewsletterCampaignStatus.completed);
+      expect(statusOf('partially_failed'), NewsletterCampaignStatus.unknown);
+      expect(statusOf('something_new'), NewsletterCampaignStatus.unknown);
+      expect(
+        newsletterStatusOf(
+          productUpdateCampaignFromJson(_completedWithDelivery()),
+        ),
+        NewsletterCampaignStatus.delivered,
+      );
+    });
+
+    test(
+      'loopback origins accept IPv6 loopback and nothing else over HTTP',
+      () {
+        for (final origin in [
+          'http://[::1]:8787',
+          'http://localhost:3000',
+          'http://127.0.0.1:3000',
+        ]) {
+          expect(
+            () => CentralCampaignBridgeApi.create(
+              origin: Uri.parse(origin),
+              client: MockClient((_) async => _response('{}', 200)),
+            ),
+            returnsNormally,
+            reason: origin,
+          );
+        }
+        expect(
+          () => CentralCampaignBridgeApi.create(
+            origin: Uri.parse('http://example.test'),
+            client: MockClient((_) async => _response('{}', 200)),
+          ),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test('a console URL on IPv6 loopback is accepted', () async {
+      final api = _api(
+        (_) async => _response(
+          jsonEncode({
+            'businesses': <Object>[],
+            'console_url': 'http://[::1]:8787/console/',
+          }),
+          200,
+        ),
+      );
+      final context = await api.context();
+      expect(context.consoleUri.host, '::1');
+      api.api.close();
+    });
+
+    test('refusals carry their own French wording', () async {
+      final api = _api(
+        (_) async => _response(
+          jsonEncode({
+            'error': {'code': 'invalid_state'},
+          }),
+          409,
+        ),
+      );
+      await expectLater(
+        api.cancel(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 1,
+        ),
+        throwsA(
+          isA<EmailApiException>().having(
+            (e) => e.message,
+            'message',
+            'Cette mise à jour est déjà terminée ou annulée.',
+          ),
+        ),
+      );
+      api.api.close();
+
+      expect(
+        const EmailApiException('invalid_state', operation: 'snapshot').message,
+        contains('brouillon'),
+      );
+      expect(
+        const EmailApiException('invalid_state').message,
+        'Cette action n’est pas possible dans l’état actuel de la mise à jour.',
+      );
+      expect(
+        const EmailApiException('review_required').message,
+        contains('préparation doit être refaite'),
+      );
+      expect(
+        const EmailApiException('idempotency_conflict').message,
+        contains('autre contenu'),
+      );
+      expect(
+        const EmailApiException('payload_too_large').message,
+        contains('64 Ko'),
+      );
+      expect(
+        EmailApiException(
+          'rate_limited',
+          retryAfter: const Duration(seconds: 30),
+        ).message,
+        contains('30 s'),
+      );
+      expect(
+        const EmailApiException('console_required').message,
+        contains('console CommandGlows'),
+      );
+      expect(
+        const EmailApiException('snapshot_page_limit').message,
+        contains('Relancez'),
+      );
     });
   });
 }

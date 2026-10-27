@@ -31,6 +31,12 @@ Operations: `context`, `listCampaigns`, `status`, `preview`, `create`, `revise`,
 never sent. The bridge answers them with `EmailApiException('console_required')`,
 and the host sends the operator to `ProductUpdateContext.consoleUri`.
 
+`snapshotUntilComplete` runs `snapshot` page after page until `review.complete`. It
+has a page cap (`productUpdateSnapshotPageCap`, 400), its own idempotency key per
+page, and waits for `Retry-After` on a 429 before retrying the same page. Only a
+complete review may be approved in the console. `listCampaigns` returns at most
+`productUpdateListLimit` (10) campaigns per page.
+
 `CentralCampaignBridgeRepository` implements `NewsletterCampaignRepository` for
 one business and audience, so `CampaignWorkspace` can list and create drafts. The
 bridge has no state filter, so a status filter applies to the loaded page only.
@@ -39,7 +45,12 @@ bridge has no state filter, so a status filter applies to the loaded page only.
 request: title 160, subject 200, preheader 300, no control characters and no
 provider placeholder syntax. It splits Markdown on blank lines into `rich_text`
 blocks of at most 20,000 characters, and refuses more than 60 blocks or more
-than 48,000 characters of block JSON.
+than 48,000 UTF-8 bytes of block JSON. `CentralCampaignBridgeApi` also caps the whole
+JSON body at 64 KiB of UTF-8 before sending it (`payload_too_large`).
+
+`ProductUpdateBusiness.defaultAudience` is the product-updates audience only: id
+`product-updates`, or purpose `product-updates` ignoring case, spaces and underscores.
+It is null when the business has none; there is no fallback to another audience.
 
 ## Identity link
 

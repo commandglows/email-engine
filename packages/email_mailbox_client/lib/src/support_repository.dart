@@ -58,6 +58,8 @@ class CentralSupportRepository implements SupportRepository {
             'mailbox_not_allowed',
             'consent_incomplete',
             'thread_too_large',
+            'payload_too_large',
+            'console_required',
             'invalid_request',
             'invalid_attachments',
             'attachments_too_large',

@@ -8,6 +8,12 @@ import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 
 typedef EmailAccessTokenProvider = Future<String?> Function();
 
+/// Loopback hosts that may use plain HTTP during local development. `Uri.host`
+/// returns an IPv6 literal without brackets, so `::1` is the spelling that
+/// matches a parsed URI; `[::1]` is accepted too for a caller that passes it raw.
+bool isLoopbackHost(String host) =>
+    const {'localhost', '127.0.0.1', '::1', '[::1]'}.contains(host);
+
 /// User session client. Provider and service credentials remain server-owned.
 class CentralEmailApi {
   CentralEmailApi({
@@ -21,12 +27,7 @@ class CentralEmailApi {
         origin.hasQuery ||
         origin.hasFragment ||
         (origin.scheme != 'https' &&
-            !(origin.scheme == 'http' &&
-                const [
-                  'localhost',
-                  '127.0.0.1',
-                  '[::1]',
-                ].contains(origin.host)))) {
+            !(origin.scheme == 'http' && isLoopbackHost(origin.host)))) {
       throw ArgumentError('A secure host origin is required.');
     }
     if (!RegExp(r'^/[a-zA-Z0-9_/-]+$').hasMatch(apiBasePath) ||
@@ -112,17 +113,10 @@ class CentralEmailApi {
         http.AbortableRequest(method, uri, abortTrigger: abort.future)
           ..followRedirects = false
           ..headers['Accept'] = 'application/json';
-    if (body != null) {
-      if (!_pendingKeys.containsKey(intentFingerprint) &&
-          _pendingKeys.length >= maxPendingCommands) {
-        throw const EmailApiException('pending_commands_limit');
-      }
-      request.headers['Content-Type'] = 'application/json';
-      request.headers['Idempotency-Key'] = _pendingKeys.putIfAbsent(
-        intentFingerprint,
-        _key,
-      );
-      request.body = encoded;
+    if (body != null &&
+        !_pendingKeys.containsKey(intentFingerprint) &&
+        _pendingKeys.length >= maxPendingCommands) {
+      throw const EmailApiException('pending_commands_limit');
     }
     final supplier = accessTokenProvider;
     if (supplier != null) {
@@ -140,43 +134,66 @@ class CentralEmailApi {
       }
       request.headers['Authorization'] = 'Bearer $token';
     }
+    // The key is registered only once the request is ready to leave: a refused
+    // token therefore never leaves a pending command behind.
+    if (body != null) {
+      request.headers['Content-Type'] = 'application/json';
+      request.headers['Idempotency-Key'] = _pendingKeys.putIfAbsent(
+        intentFingerprint,
+        _key,
+      );
+      request.body = encoded;
+    }
     final timer = Timer(requestTimeout ?? timeout, () => abort.complete());
     try {
       final response = await _client.send(request);
-      if (response.statusCode >= 300 && response.statusCode < 400) {
-        if (method == 'POST') _pendingKeys.remove(intentFingerprint);
+      final status = response.statusCode;
+      if (status >= 300 && status < 400) {
+        _release(method, intentFingerprint);
         throw const EmailApiException('auth_required');
       }
       final bytes = <int>[];
+      var overflow = false;
       await for (final chunk in response.stream) {
         if (bytes.length + chunk.length > responseLimit) {
-          throw const EmailApiException('invalid_backend_receipt');
+          overflow = true;
+          break;
         }
         bytes.addAll(chunk);
       }
-      if (response.statusCode == 401) {
-        if (method == 'POST') _pendingKeys.remove(intentFingerprint);
+      // Status first: a refusal or an outage may come with a non-JSON body, and
+      // the caller must still receive its typed error, not a decoding failure.
+      if (status == 401) {
+        _release(method, intentFingerprint);
         throw const EmailApiException('auth_required');
       }
-      if (response.statusCode == 403) {
-        if (method == 'POST') _pendingKeys.remove(intentFingerprint);
-        throw EmailApiException(_refusalCode(bytes));
+      if (status == 403) {
+        _release(method, intentFingerprint);
+        throw EmailApiException(
+          _errorCode(bytes) == 'console_required'
+              ? 'console_required'
+              : 'forbidden',
+        );
       }
+      if (status < 200 || status >= 300) {
+        // Refusals (4xx, 429) happen before any work, so the key is released.
+        // An outage (5xx) may have run: its key stays, and an identical retry
+        // replays the same receipt.
+        if (status < 500) _release(method, intentFingerprint);
+        throw EmailApiException(
+          _failureCode(status, bytes),
+          retryAfter: status == 429 ? _retryAfter(response.headers) : null,
+        );
+      }
+      if (overflow) throw const EmailApiException('invalid_backend_receipt');
       Map<String, dynamic> payload;
       try {
         payload = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
       } catch (_) {
+        // A 2xx that is not JSON means the command ran: its key stays pending.
         throw const EmailApiException('invalid_backend_receipt');
       }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final error = payload['error'];
-        final code = error is Map ? error['code'] : error;
-        if (response.statusCode < 500) {
-          _pendingKeys.remove(intentFingerprint);
-        }
-        throw EmailApiException(code is String ? code : 'service_unavailable');
-      }
-      _pendingKeys.remove(intentFingerprint);
+      _release(method, intentFingerprint);
       return payload;
     } on EmailApiException {
       rethrow;
@@ -191,17 +208,45 @@ class CentralEmailApi {
     }
   }
 
-  /// Only the human-only refusal keeps its code; every other 403 stays `forbidden`.
-  static String _refusalCode(List<int> bytes) {
+  void _release(String method, String intentFingerprint) {
+    if (method == 'POST') _pendingKeys.remove(intentFingerprint);
+  }
+
+  /// The machine code of a JSON error body, or null when the body is not one.
+  static String? _errorCode(List<int> bytes) {
     try {
       final payload = jsonDecode(utf8.decode(bytes));
       final error = payload is Map ? payload['error'] : null;
-      final code = error is Map ? error['code'] : null;
-      if (code == 'console_required') return 'console_required';
+      final code = error is Map ? error['code'] : error;
+      return code is String && code.isNotEmpty ? code : null;
     } on FormatException {
-      return 'forbidden';
+      return null;
     }
-    return 'forbidden';
+  }
+
+  /// The server's code when it gave one, otherwise a code that follows from
+  /// the status alone.
+  static String _failureCode(int status, List<int> bytes) {
+    final code = _errorCode(bytes);
+    if (code != null) return code;
+    return switch (status) {
+      413 => 'payload_too_large',
+      429 => 'rate_limited',
+      _ => 'service_unavailable',
+    };
+  }
+
+  /// Retry-After in whole seconds, capped at one hour. Header names are matched
+  /// case-insensitively because the client does not normalise them.
+  static Duration? _retryAfter(Map<String, String> headers) {
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() != 'retry-after') continue;
+      final seconds = int.tryParse(entry.value.trim());
+      if (seconds != null && seconds >= 0) {
+        return Duration(seconds: min(seconds, 3600));
+      }
+    }
+    return null;
   }
 
   void close() {
@@ -211,10 +256,35 @@ class CentralEmailApi {
   }
 }
 
+String _rateLimitedMessage(Duration? retryAfter) => retryAfter == null
+    ? 'Trop de demandes rapprochées. Attendez un instant avant de réessayer.'
+    : 'Trop de demandes rapprochées. Réessayez dans ${max(1, retryAfter.inSeconds)} s.';
+
+/// French wording of `invalid_state`, which depends on the refused operation.
+String _invalidStateMessage(String? operation) => switch (operation) {
+  'create' || 'revise' =>
+    'Cette mise à jour ne peut plus être modifiée dans son état actuel. Actualisez-la pour voir son statut.',
+  'snapshot' =>
+    'La préparation n’est possible que pour un brouillon ou une campagne suspendue.',
+  'pause' =>
+    'Cette mise à jour ne peut pas être mise en pause dans son état actuel.',
+  'cancel' => 'Cette mise à jour est déjà terminée ou annulée.',
+  'delete' => 'Seul un brouillon peut être supprimé.',
+  _ => 'Cette action n’est pas possible dans l’état actuel de la mise à jour.',
+};
+
 class EmailApiException implements Exception, CodedFailure {
-  const EmailApiException(this.code);
+  const EmailApiException(this.code, {this.operation, this.retryAfter});
   @override
   final String code;
+
+  /// The bridge operation that was refused, when the caller knows it. It picks
+  /// the wording of `invalid_state`.
+  final String? operation;
+
+  /// Wait requested by a 429 (`Retry-After`), when the server gave one.
+  final Duration? retryAfter;
+
   String get message => switch (code) {
     'auth_required' =>
       'Votre session a expiré. Reconnectez-vous à CommandGlows, puis réessayez.',
@@ -228,8 +298,15 @@ class EmailApiException implements Exception, CodedFailure {
       'La réponse a été interrompue. Vérifiez le statut de la campagne avant de renouveler l’action.',
     'invalid_input' =>
       'Vérifiez le contenu, l’audience et la date de la campagne.',
-    'invalid_state' || 'review_required' =>
-      'La campagne doit être revue à nouveau avant cet envoi.',
+    'invalid_state' => _invalidStateMessage(operation),
+    'review_required' =>
+      'La préparation doit être refaite avant l’approbation. Préparez à nouveau la mise à jour.',
+    'idempotency_conflict' =>
+      'Cette action a déjà été envoyée avec un autre contenu. Actualisez la mise à jour avant de recommencer.',
+    'payload_too_large' =>
+      'Le contenu dépasse la limite de la passerelle (64 Ko). Raccourcissez le message.',
+    'snapshot_page_limit' =>
+      'La préparation prend plus de temps que prévu. Relancez « Préparer » : l’avancement est conservé.',
     'link_check_required' =>
       'Vérifiez les liens de cette version avant de programmer ou d’envoyer.',
     'preflight_blocked' =>
@@ -242,8 +319,7 @@ class EmailApiException implements Exception, CodedFailure {
       'La liste complète des références à réduire est trop grande ou a changé. Rechargez la campagne avant de réessayer.',
     'incident_read_unavailable' =>
       'Le registre d’incidents n’est pas disponible pour cette campagne.',
-    'rate_limited' =>
-      'Trop de demandes rapprochées. Attendez un instant avant de réessayer.',
+    'rate_limited' => _rateLimitedMessage(retryAfter),
     'pending_commands_limit' =>
       'Trop d’actions ont un résultat incertain. Vérifiez leur état avant de recharger l’application et de reprendre.',
     _ =>

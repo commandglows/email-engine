@@ -13,14 +13,38 @@ const productUpdateSubjectLimit = 200;
 const productUpdatePreheaderLimit = 300;
 const productUpdateRichTextLimit = 20000;
 const productUpdateMaxBlocks = 60;
+
+/// Blocks JSON cap in UTF-8 bytes; the whole bridge body has its own cap below.
 const productUpdateBlocksJsonLimit = 48000;
+
+/// Cap of the whole JSON request body accepted by the bridge, in UTF-8 bytes.
+const productUpdateBridgeBodyBytes = 65536;
+
+/// Campaigns per list page. The list view returns every block of every row and
+/// has no lighter view, so pages stay small instead of trimming the payload.
+const productUpdateListLimit = 10;
+
+/// Snapshot pages before a preparation is abandoned. Each page evaluates 50
+/// members, so this covers audiences of 20 000 members.
+const productUpdateSnapshotPageCap = 400;
 
 /// Audience id that product updates target, one per business.
 const productUpdateAudienceId = 'product-updates';
 
-final _singleLineControl = RegExp(
-  r'[\u0000-\u001f\u007f-\u009f  ‪-‮⁦-⁩]',
-);
+/// True when an audience denotes product updates: its id is `product-updates`,
+/// or its purpose is `product-updates` once case, spaces and underscores are
+/// ignored (`Product_Updates`, `product updates`). Any other audience, such as
+/// a newsletter one, is never used in its place.
+bool isProductUpdatesAudience(ProductUpdateAudience audience) {
+  if (audience.id == productUpdateAudienceId) return true;
+  final purpose = audience.purpose.trim().toLowerCase().replaceAll(
+    RegExp(r'[\s_]+'),
+    '-',
+  );
+  return purpose == productUpdateAudienceId;
+}
+
+final _singleLineControl = RegExp(r'[\u0000-\u001f\u007f-\u009f  ‪-‮⁦-⁩]');
 final _blockControl = RegExp(
   r'[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‪-‮⁦-⁩]',
 );
@@ -66,7 +90,7 @@ DateTime _instant(Object? value) {
 Uri? _secureUri(String value) {
   final uri = Uri.tryParse(value);
   if (uri == null || !uri.hasAuthority || uri.userInfo.isNotEmpty) return null;
-  final loopback = const ['localhost', '127.0.0.1', '::1'].contains(uri.host);
+  final loopback = isLoopbackHost(uri.host);
   if (uri.scheme == 'https' || (uri.scheme == 'http' && loopback)) return uri;
   return null;
 }
@@ -89,18 +113,22 @@ class ProductUpdateBusiness {
   final String brand;
   final List<ProductUpdateAudience> audiences;
 
-  /// The `product-updates` audience when granted, otherwise the first one.
+  /// The product-updates audience (see [isProductUpdatesAudience]), or null when
+  /// this product has none. There is no fallback to another audience.
   ProductUpdateAudience? get defaultAudience {
     for (final audience in audiences) {
-      if (audience.id == productUpdateAudienceId) return audience;
+      if (isProductUpdatesAudience(audience)) return audience;
     }
-    return audiences.isEmpty ? null : audiences.first;
+    return null;
   }
 }
 
 @immutable
 class ProductUpdateContext {
-  const ProductUpdateContext({required this.businesses, required this.consoleUri});
+  const ProductUpdateContext({
+    required this.businesses,
+    required this.consoleUri,
+  });
   final List<ProductUpdateBusiness> businesses;
 
   /// Where approval, challenge and resume happen. Never approved from the app.
@@ -298,10 +326,31 @@ class ProductUpdateDraft {
     this.bodyMarkdown = '',
   });
 
+  /// The content of a stored campaign, as the editor shows it.
+  factory ProductUpdateDraft.fromCampaign(ProductUpdateCampaign campaign) =>
+      ProductUpdateDraft(
+        title: campaign.title,
+        subject: campaign.subject,
+        preheader: campaign.preheader,
+        bodyMarkdown: campaign.bodyMarkdown,
+      );
+
   final String title;
   final String subject;
   final String preheader;
   final String bodyMarkdown;
+
+  /// Value equality: the editor compares the draft with the last saved revision.
+  @override
+  bool operator ==(Object other) =>
+      other is ProductUpdateDraft &&
+      other.title == title &&
+      other.subject == subject &&
+      other.preheader == preheader &&
+      other.bodyMarkdown == bodyMarkdown;
+
+  @override
+  int get hashCode => Object.hash(title, subject, preheader, bodyMarkdown);
 
   /// French messages for every rule the bridge would refuse. Empty means the
   /// draft can be saved. `forPreparation` adds the requirements of approval.
@@ -327,7 +376,8 @@ class ProductUpdateDraft {
       );
     }
     for (final value in [name, cleanSubject, cleanPreheader]) {
-      if (_singleLineControl.hasMatch(value) || _providerSyntax.hasMatch(value)) {
+      if (_singleLineControl.hasMatch(value) ||
+          _providerSyntax.hasMatch(value)) {
         issues.add('Un champ contient des caractères interdits.');
         break;
       }
@@ -352,10 +402,15 @@ class ProductUpdateDraft {
     )) {
       issues.add('Le corps contient des caractères interdits.');
     }
+    // Measured in UTF-8 bytes, the unit the bridge enforces, not in characters.
     if (blocks.isNotEmpty &&
-        jsonEncode([for (final block in blocks) _blockJson(block)]).length >
+        utf8
+                .encode(
+                  jsonEncode([for (final block in blocks) _blockJson(block)]),
+                )
+                .length >
             productUpdateBlocksJsonLimit) {
-      issues.add('Le corps dépasse la limite de 48 000 caractères.');
+      issues.add('Le corps dépasse la limite de 48 000 octets.');
     }
     return issues;
   }
@@ -413,14 +468,18 @@ class ProductUpdateDraft {
 /// Maps a machine state onto the shared studio status labels.
 NewsletterCampaignStatus newsletterStatusOf(ProductUpdateCampaign campaign) {
   int count(String key) => campaign.counters[key] ?? 0;
+  // The campaign states the bridge can return (convex/emailCampaigns.ts). An
+  // approved campaign whose time has come is `sending`; `running` and
+  // `fanout_complete` are the same phase. `failed` and `partially_failed` are
+  // not campaign states (failures live in the counters), so they stay unknown.
   return switch (campaign.state) {
     'draft' => NewsletterCampaignStatus.draft,
     'scheduled' => NewsletterCampaignStatus.scheduled,
+    'sending' ||
+    'running' ||
+    'fanout_complete' => NewsletterCampaignStatus.sending,
     'paused' || 'suspended' => NewsletterCampaignStatus.suspended,
     'cancelled' => NewsletterCampaignStatus.cancelled,
-    'running' || 'queued' || 'fanout_complete' => NewsletterCampaignStatus.sending,
-    'delivered' => NewsletterCampaignStatus.delivered,
-    'failed' => NewsletterCampaignStatus.failed,
     'completed' =>
       count('unknown') > 0
           ? NewsletterCampaignStatus.unknown

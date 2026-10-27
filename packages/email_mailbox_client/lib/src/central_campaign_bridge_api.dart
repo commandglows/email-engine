@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 
@@ -36,17 +38,18 @@ class CentralCampaignBridgeApi {
   Future<ProductUpdateContext> context() async =>
       productUpdateContextFromJson(await api.get('context'));
 
-  /// Newest first. The bridge has no state filter, so the workspace filters
+  /// Newest first, at most [productUpdateListLimit] campaigns per page: a larger
+  /// request is clamped. The bridge has no state filter, so the workspace filters
   /// the returned page only.
   Future<ProductUpdateCampaignPage> listCampaigns({
     required String businessId,
     String? cursor,
-    int limit = 25,
+    int limit = productUpdateListLimit,
   }) async {
     final json = await api.get('campaigns', {
       'business_id': businessId,
       'view': 'list',
-      'limit': '${limit.clamp(1, 100)}',
+      'limit': '${limit.clamp(1, productUpdateListLimit)}',
       'cursor': ?cursor,
     });
     final rows = json['page'];
@@ -123,7 +126,9 @@ class CentralCampaignBridgeApi {
     return productUpdateReceiptFromJson(json);
   }
 
-  /// Evaluates the audience and returns the review that the console approves.
+  /// Evaluates one page of the audience and returns the review so far. The
+  /// review is complete only when every page has been evaluated; see
+  /// [snapshotUntilComplete]. The version does not change between pages.
   Future<ProductUpdateReceipt> snapshot({
     required String businessId,
     required String campaignId,
@@ -135,6 +140,56 @@ class CentralCampaignBridgeApi {
       'expected_version': expectedVersion,
     }),
   );
+
+  /// Runs `snapshot` page after page until the server reports the audience fully
+  /// evaluated (`review.complete`), and returns that receipt. Only a complete
+  /// review may be approved in the console.
+  ///
+  /// Every page is its own command with its own idempotency key: the transport
+  /// releases a key once its command succeeds, so the next identical page gets a
+  /// fresh one. A 429 is a refusal before work, so the same page is retried after
+  /// the server's Retry-After, up to [maxRateRetries] times in a row. Progress is
+  /// reported after each page through [onProgress]. Re-running after an error
+  /// resumes where the server left off.
+  Future<ProductUpdateReceipt> snapshotUntilComplete({
+    required String businessId,
+    required String campaignId,
+    required int expectedVersion,
+    void Function(int page, ProductUpdateReceipt receipt)? onProgress,
+    int maxPages = productUpdateSnapshotPageCap,
+    int maxRateRetries = 5,
+    Future<void> Function(Duration delay)? wait,
+  }) async {
+    final sleep = wait ?? (delay) => Future<void>.delayed(delay);
+    var rateRetries = 0;
+    var page = 1;
+    while (page <= maxPages) {
+      final ProductUpdateReceipt receipt;
+      try {
+        receipt = await snapshot(
+          businessId: businessId,
+          campaignId: campaignId,
+          expectedVersion: expectedVersion,
+        );
+      } on EmailApiException catch (error) {
+        if (error.code != 'rate_limited' || rateRetries >= maxRateRetries) {
+          rethrow;
+        }
+        rateRetries += 1;
+        await sleep(error.retryAfter ?? const Duration(seconds: 2));
+        continue;
+      }
+      rateRetries = 0;
+      final review = receipt.review;
+      if (review == null) {
+        throw const EmailApiException('invalid_backend_receipt');
+      }
+      onProgress?.call(page, receipt);
+      if (review.complete) return receipt;
+      page += 1;
+    }
+    throw const EmailApiException('snapshot_page_limit');
+  }
 
   Future<ProductUpdateReceipt> pause({
     required String businessId,
@@ -176,10 +231,27 @@ class CentralCampaignBridgeApi {
     }
   }
 
+  /// Sends one machine command. The whole JSON body is capped at 64 KiB of
+  /// UTF-8 before anything leaves the device, as the bridge caps it. A refusal
+  /// keeps the operation name, so `invalid_state` gets its own wording.
   Future<Map<String, dynamic>> _command(
     String operation,
     Map<String, dynamic> fields,
-  ) => api.post('campaigns', {'operation': operation, ...fields});
+  ) async {
+    final body = {'operation': operation, ...fields};
+    if (utf8.encode(jsonEncode(body)).length > productUpdateBridgeBodyBytes) {
+      throw EmailApiException('payload_too_large', operation: operation);
+    }
+    try {
+      return await api.post('campaigns', body);
+    } on EmailApiException catch (error) {
+      throw EmailApiException(
+        error.code,
+        operation: operation,
+        retryAfter: error.retryAfter,
+      );
+    }
+  }
 }
 
 /// One business's campaigns, shaped for the shared [CampaignWorkspace].
@@ -198,7 +270,7 @@ class CentralCampaignBridgeRepository implements NewsletterCampaignRepository {
   Future<NewsletterCampaignPage> list({
     String? cursor,
     NewsletterCampaignStatus? status,
-    int limit = 25,
+    int limit = productUpdateListLimit,
   }) async {
     final page = await api.listCampaigns(
       businessId: businessId,
