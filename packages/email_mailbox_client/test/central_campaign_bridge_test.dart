@@ -798,6 +798,27 @@ void main() {
       },
     );
 
+    test('campaignStatus carries the snapshot state of the status receipt', () async {
+      final api = _api((request) async {
+        expect(request.url.queryParameters['view'], 'status');
+        return _response(
+          jsonEncode({
+            ..._campaign(),
+            'snapshot': {'complete': true, 'eligible': 3, 'excluded': 0},
+          }),
+          200,
+        );
+      });
+      final status = await api.campaignStatus(
+        businessId: 'shipglows',
+        campaignId: 'camp_1',
+      );
+      expect(status.snapshotComplete, isTrue);
+      expect(status.campaign.id, 'camp_1');
+      expect(status.campaign.version, 3);
+      api.api.close();
+    });
+
     test('campaign states map to the studio statuses', () {
       NewsletterCampaignStatus statusOf(String state) => newsletterStatusOf(
         productUpdateCampaignFromJson(_campaign(state: state)),

@@ -309,6 +309,27 @@ ProductUpdateReceipt productUpdateReceiptFromJson(Map<String, dynamic> json) {
   );
 }
 
+/// A status read: the campaign, and whether its audience snapshot is complete
+/// for the current version. A complete snapshot can be approved without a new
+/// preparation.
+@immutable
+class ProductUpdateStatus {
+  const ProductUpdateStatus({
+    required this.campaign,
+    required this.snapshotComplete,
+  });
+  final ProductUpdateCampaign campaign;
+  final bool snapshotComplete;
+}
+
+ProductUpdateStatus productUpdateStatusFromJson(Map<String, dynamic> json) {
+  final snapshot = json['snapshot'];
+  return ProductUpdateStatus(
+    campaign: productUpdateCampaignFromJson(json),
+    snapshotComplete: snapshot is Map && snapshot['complete'] == true,
+  );
+}
+
 @immutable
 class ProductUpdateCampaignPage {
   const ProductUpdateCampaignPage({required this.items, this.cursor});

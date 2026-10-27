@@ -72,7 +72,16 @@ class CentralCampaignBridgeApi {
   Future<ProductUpdateCampaign> status({
     required String businessId,
     required String campaignId,
-  }) async => productUpdateCampaignFromJson(
+  }) async => (await campaignStatus(
+    businessId: businessId,
+    campaignId: campaignId,
+  )).campaign;
+
+  /// The campaign with its snapshot state, for restoring an editor on reopen.
+  Future<ProductUpdateStatus> campaignStatus({
+    required String businessId,
+    required String campaignId,
+  }) async => productUpdateStatusFromJson(
     await api.get('campaigns', {
       'business_id': businessId,
       'view': 'status',
