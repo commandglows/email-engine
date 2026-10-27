@@ -163,13 +163,15 @@ class CentralCampaignBridgeApi {
     final sleep = wait ?? (delay) => Future<void>.delayed(delay);
     var rateRetries = 0;
     var page = 1;
+    // Each page is sent at the version the previous receipt reported.
+    var version = expectedVersion;
     while (page <= maxPages) {
       final ProductUpdateReceipt receipt;
       try {
         receipt = await snapshot(
           businessId: businessId,
           campaignId: campaignId,
-          expectedVersion: expectedVersion,
+          expectedVersion: version,
         );
       } on EmailApiException catch (error) {
         if (error.code != 'rate_limited' || rateRetries >= maxRateRetries) {
@@ -184,6 +186,7 @@ class CentralCampaignBridgeApi {
       if (review == null) {
         throw const EmailApiException('invalid_backend_receipt');
       }
+      version = receipt.campaign.version;
       onProgress?.call(page, receipt);
       if (review.complete) return receipt;
       page += 1;

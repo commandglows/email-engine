@@ -57,8 +57,9 @@ Map<String, dynamic> _completedWithDelivery() {
 Map<String, dynamic> _snapshotReceipt({
   required bool complete,
   int eligible = 0,
+  int version = 3,
 }) => {
-  ..._campaign(),
+  ..._campaign(version: version),
   'review': {
     'id': 'camp_1:3',
     'complete': complete,
@@ -393,7 +394,7 @@ void main() {
       final huge = List.filled(5000, 'x'.padRight(10, 'x')).join('\n\n');
       expect(
         ProductUpdateDraft(title: 'Nouveauté', bodyMarkdown: huge).validate(),
-        contains('Le corps dépasse la limite de 48 000 octets.'),
+        contains('Le corps dépasse la limite de 48 000 caractères.'),
       );
     });
 
@@ -418,15 +419,23 @@ void main() {
       'snapshotUntilComplete pages to the end with a fresh key per page',
       () async {
         final keys = <String>[];
+        final versions = <Object?>[];
         var calls = 0;
         final api = _api((request) async {
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           expect(body['operation'], 'snapshot');
-          expect(body['expected_version'], 3);
+          versions.add(body['expected_version']);
           keys.add(request.headers['Idempotency-Key']!);
           calls += 1;
+          // Each page leaves the campaign one version further on.
           return _response(
-            jsonEncode(_snapshotReceipt(complete: calls == 3, eligible: calls)),
+            jsonEncode(
+              _snapshotReceipt(
+                complete: calls == 3,
+                eligible: calls,
+                version: 3 + calls,
+              ),
+            ),
             200,
           );
         });
@@ -440,6 +449,8 @@ void main() {
         expect(receipt.review!.complete, isTrue);
         expect(receipt.review!.eligibleCount, 3);
         expect(progress, [1, 2, 3]);
+        // The version carried forward is the one each receipt reported.
+        expect(versions, [3, 4, 5]);
         expect(keys.toSet(), hasLength(3));
         api.api.close();
       },
@@ -660,15 +671,24 @@ void main() {
       },
     );
 
-    test('the draft validator counts blocks in UTF-8 bytes', () {
-      // 18 002 characters but 54 006 bytes: over the 48 000-byte blocks cap.
+    test('the draft validator counts blocks in UTF-16 units', () {
+      // 18 002 characters are 18 002 UTF-16 units: under the 48 000 cap.
       final euro = '€' * 9000;
       expect(
         ProductUpdateDraft(
           title: 'Nouveauté',
           bodyMarkdown: '$euro\n\n$euro',
         ).validate(),
-        contains('Le corps dépasse la limite de 48 000 octets.'),
+        isNot(contains('Le corps dépasse la limite de 48 000 caractères.')),
+      );
+      // Six 9 000-character paragraphs: 54 000 units once serialized, over the cap.
+      final long = 'x' * 9000;
+      expect(
+        ProductUpdateDraft(
+          title: 'Nouveauté',
+          bodyMarkdown: List.filled(6, long).join('\n\n'),
+        ).validate(),
+        contains('Le corps dépasse la limite de 48 000 caractères.'),
       );
     });
 
@@ -735,6 +755,49 @@ void main() {
       },
     );
 
+    test(
+      'a 503 that names a definitive unavailability releases its key',
+      () async {
+        final keys = <String>[];
+        var calls = 0;
+        final api = _api((request) async {
+          keys.add(request.headers['Idempotency-Key']!);
+          calls += 1;
+          if (calls == 1) {
+            return _response(
+              jsonEncode({
+                'error': {'code': 'configuration_unavailable'},
+              }),
+              503,
+            );
+          }
+          return _response(jsonEncode(_snapshotReceipt(complete: true)), 200);
+        });
+        await expectLater(
+          api.snapshot(
+            businessId: 'shipglows',
+            campaignId: 'camp_1',
+            expectedVersion: 1,
+          ),
+          throwsA(
+            isA<EmailApiException>().having(
+              (e) => e.code,
+              'code',
+              'configuration_unavailable',
+            ),
+          ),
+        );
+        // Refused before any work: the identical retry gets a fresh key.
+        await api.snapshot(
+          businessId: 'shipglows',
+          campaignId: 'camp_1',
+          expectedVersion: 1,
+        );
+        expect(keys[1], isNot(keys[0]));
+        api.api.close();
+      },
+    );
+
     test('campaign states map to the studio statuses', () {
       NewsletterCampaignStatus statusOf(String state) => newsletterStatusOf(
         productUpdateCampaignFromJson(_campaign(state: state)),
@@ -749,7 +812,11 @@ void main() {
       expect(statusOf('suspended'), NewsletterCampaignStatus.suspended);
       expect(statusOf('cancelled'), NewsletterCampaignStatus.cancelled);
       expect(statusOf('completed'), NewsletterCampaignStatus.completed);
-      expect(statusOf('partially_failed'), NewsletterCampaignStatus.unknown);
+      expect(statusOf('failed'), NewsletterCampaignStatus.failed);
+      expect(
+        statusOf('partially_failed'),
+        NewsletterCampaignStatus.partiallyDelivered,
+      );
       expect(statusOf('something_new'), NewsletterCampaignStatus.unknown);
       expect(
         newsletterStatusOf(

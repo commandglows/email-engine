@@ -44,6 +44,13 @@ class CentralEmailApi {
   static const timeout = Duration(seconds: 20);
   static const maxResponseBytes = 1024 * 1024;
   static const maxPendingCommands = 128;
+  // 503 codes the server gives before any work: the key may be released.
+  static const _definitiveUnavailable = <String>{
+    'configuration_unavailable',
+    'sequences_unavailable',
+    'public_subscribe_unavailable',
+    'transport_not_enabled',
+  };
   final Map<String, String> _pendingKeys = {};
   final List<int> _intentFingerprintKey = List.generate(
     32,
@@ -176,12 +183,17 @@ class CentralEmailApi {
         );
       }
       if (status < 200 || status >= 300) {
-        // Refusals (4xx, 429) happen before any work, so the key is released.
-        // An outage (5xx) may have run: its key stays, and an identical retry
-        // replays the same receipt.
-        if (status < 500) _release(method, intentFingerprint);
+        final code = _failureCode(status, bytes);
+        // Refusals (4xx, 429) and the 503s that name a definitive unavailability
+        // happen before any work, so the key is released. Other outages (502,
+        // 504, unknown 5xx) may have run: their key stays, and an identical
+        // retry replays the same receipt.
+        if (status < 500 ||
+            (status == 503 && _definitiveUnavailable.contains(code))) {
+          _release(method, intentFingerprint);
+        }
         throw EmailApiException(
-          _failureCode(status, bytes),
+          code,
           retryAfter: status == 429 ? _retryAfter(response.headers) : null,
         );
       }

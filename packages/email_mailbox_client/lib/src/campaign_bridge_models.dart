@@ -402,15 +402,12 @@ class ProductUpdateDraft {
     )) {
       issues.add('Le corps contient des caractères interdits.');
     }
-    // Measured in UTF-8 bytes, the unit the bridge enforces, not in characters.
+    // Measured in UTF-16 code units, like the central check
+    // (JSON.stringify(blocks).length), not in UTF-8 bytes.
     if (blocks.isNotEmpty &&
-        utf8
-                .encode(
-                  jsonEncode([for (final block in blocks) _blockJson(block)]),
-                )
-                .length >
+        jsonEncode([for (final block in blocks) _blockJson(block)]).length >
             productUpdateBlocksJsonLimit) {
-      issues.add('Le corps dépasse la limite de 48 000 octets.');
+      issues.add('Le corps dépasse la limite de 48 000 caractères.');
     }
     return issues;
   }
@@ -471,8 +468,11 @@ NewsletterCampaignStatus newsletterStatusOf(ProductUpdateCampaign campaign) {
   // The campaign states the bridge can return (convex/emailCampaigns.ts). An
   // approved campaign whose time has come is `sending`; `running` and
   // `fanout_complete` are the same phase. `failed` and `partially_failed` are
-  // not campaign states (failures live in the counters), so they stay unknown.
+  // terminal states in the bridge (TERMINAL_CAMPAIGN_STATES), so they map to
+  // failed and partially delivered rather than unknown.
   return switch (campaign.state) {
+    'failed' => NewsletterCampaignStatus.failed,
+    'partially_failed' => NewsletterCampaignStatus.partiallyDelivered,
     'draft' => NewsletterCampaignStatus.draft,
     'scheduled' => NewsletterCampaignStatus.scheduled,
     'sending' ||
