@@ -18,6 +18,29 @@ reviewed sources at the declared paths and record both repository identities.
 No package publication is required; no unpublished Git revision is assumed to
 be remotely available. Artifact compilation does not prove hosted activation.
 
+## Product-update campaigns
+
+`CentralCampaignBridgeApi` talks to the CommandGlows Firebase campaign bridge at
+`/api/bridge/email-campaigns/firebase`. It reuses `CentralEmailApi`, so bearer
+injection, the no-redirect rule, the 1 MiB response cap and Idempotency-Key
+handling are the same. An identical uncertain command reuses its key; an edited
+one gets a new key.
+
+Operations: `context`, `listCampaigns`, `status`, `preview`, `create`, `revise`,
+`snapshot`, `pause`, `cancel` and `delete`. Approval, challenge and resume are
+never sent. The bridge answers them with `EmailApiException('console_required')`,
+and the host sends the operator to `ProductUpdateContext.consoleUri`.
+
+`CentralCampaignBridgeRepository` implements `NewsletterCampaignRepository` for
+one business and audience, so `CampaignWorkspace` can list and create drafts. The
+bridge has no state filter, so a status filter applies to the loaded page only.
+
+`ProductUpdateDraft` checks the bridge's content rules in French before a
+request: title 160, subject 200, preheader 300, no control characters and no
+provider placeholder syntax. It splits Markdown on blank lines into `rich_text`
+blocks of at most 20,000 characters, and refuses more than 60 blocks or more
+than 48,000 characters of block JSON.
+
 ## Identity link
 
 `IdentityLinkRepository` implements `IdentityLinkGateway` over the bridge

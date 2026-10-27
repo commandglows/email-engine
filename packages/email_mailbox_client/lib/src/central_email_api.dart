@@ -160,7 +160,7 @@ class CentralEmailApi {
       }
       if (response.statusCode == 403) {
         if (method == 'POST') _pendingKeys.remove(intentFingerprint);
-        throw const EmailApiException('forbidden');
+        throw EmailApiException(_refusalCode(bytes));
       }
       Map<String, dynamic> payload;
       try {
@@ -191,6 +191,19 @@ class CentralEmailApi {
     }
   }
 
+  /// Only the human-only refusal keeps its code; every other 403 stays `forbidden`.
+  static String _refusalCode(List<int> bytes) {
+    try {
+      final payload = jsonDecode(utf8.decode(bytes));
+      final error = payload is Map ? payload['error'] : null;
+      final code = error is Map ? error['code'] : null;
+      if (code == 'console_required') return 'console_required';
+    } on FormatException {
+      return 'forbidden';
+    }
+    return 'forbidden';
+  }
+
   void close() {
     _client.close();
     _pendingKeys.clear();
@@ -207,6 +220,8 @@ class EmailApiException implements Exception, CodedFailure {
       'Votre session a expiré. Reconnectez-vous à CommandGlows, puis réessayez.',
     'forbidden' ||
     'admin_required' => 'Votre compte n’a pas accès à ces campagnes.',
+    'console_required' =>
+      'Cette étape se valide dans la console CommandGlows, pas dans cette application.',
     'version_conflict' || 'conflict' || 'stale_version' =>
       'Cette campagne a changé dans une autre fenêtre. Rechargez-la avant de continuer.',
     'outcome_unknown' =>
