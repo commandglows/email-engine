@@ -6,34 +6,65 @@ import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 import 'campaign_bridge_models.dart';
 import 'central_email_api.dart';
 
-/// Product-update campaigns through the Firebase-authenticated CommandGlows
+/// Identity provider behind a CommandGlows campaign bridge route. The route
+/// segment is part of the bridge contract, so it is fixed here and never free text.
+enum CampaignBridgeProvider {
+  firebase('firebase'),
+  shipglowsClerk('shipglows_clerk');
+
+  const CampaignBridgeProvider(this.routeSegment);
+
+  /// The `{provider}` segment of `/api/bridge/email-campaigns/{provider}`.
+  final String routeSegment;
+
+  String get apiBasePath => '/api/bridge/email-campaigns/$routeSegment';
+}
+
+/// Product-update campaigns through a provider-authenticated CommandGlows
 /// bridge. Transport, bearer injection, the no-redirect rule, the response cap
 /// and Idempotency-Key handling are those of [CentralEmailApi]: one identical
 /// uncertain command reuses its key, and an edited command gets a new one.
 ///
+/// [provider] names the bridge route the [api] must target. The default is
+/// `firebase` for existing callers. A mismatched [api] base path is refused.
+///
 /// Approval, challenge and resume are not offered here. The bridge refuses them
 /// with `console_required`, and the app sends the operator to the console.
 class CentralCampaignBridgeApi {
-  CentralCampaignBridgeApi(this.api);
+  CentralCampaignBridgeApi(
+    this.api, {
+    this.provider = CampaignBridgeProvider.firebase,
+  }) {
+    if (api.apiBasePath != provider.apiBasePath) {
+      throw ArgumentError.value(
+        api.apiBasePath,
+        'api.apiBasePath',
+        'must be ${provider.apiBasePath} for ${provider.name}',
+      );
+    }
+  }
 
-  /// Factory for hosts: an injectable [http.Client] and a short-lived bearer
-  /// supplier. The origin rules are those of [CentralEmailApi].
+  /// Factory for hosts: an injectable [http.Client], a short-lived bearer
+  /// supplier and the bridge [provider]. The origin rules are those of
+  /// [CentralEmailApi].
   factory CentralCampaignBridgeApi.create({
     required Uri origin,
     required http.Client client,
     EmailAccessTokenProvider? accessTokenProvider,
+    CampaignBridgeProvider provider = CampaignBridgeProvider.firebase,
   }) => CentralCampaignBridgeApi(
     CentralEmailApi(
       origin: origin,
       client: client,
       accessTokenProvider: accessTokenProvider,
-      apiBasePath: apiBasePath,
+      apiBasePath: provider.apiBasePath,
     ),
+    provider: provider,
   );
 
-  static const apiBasePath = '/api/bridge/email-campaigns/firebase';
-
   final CentralEmailApi api;
+
+  final CampaignBridgeProvider provider;
 
   Future<ProductUpdateContext> context() async =>
       productUpdateContextFromJson(await api.get('context'));

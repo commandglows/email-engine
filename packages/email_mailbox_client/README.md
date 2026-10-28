@@ -20,11 +20,15 @@ be remotely available. Artifact compilation does not prove hosted activation.
 
 ## Product-update campaigns
 
-`CentralCampaignBridgeApi` talks to the CommandGlows Firebase campaign bridge at
-`/api/bridge/email-campaigns/firebase`. It reuses `CentralEmailApi`, so bearer
-injection, the no-redirect rule, the 1 MiB response cap and Idempotency-Key
-handling are the same. An identical uncertain command reuses its key; an edited
-one gets a new key.
+`CentralCampaignBridgeApi` talks to a CommandGlows campaign bridge at
+`/api/bridge/email-campaigns/{provider}`. The `provider` parameter is a
+`CampaignBridgeProvider`: `firebase` (the default, for existing callers) or
+`shipglowsClerk` (`shipglows_clerk`, the ShipGlows App's Clerk id_token). Pass it
+to `CentralCampaignBridgeApi.create(provider: ...)`. A `CentralEmailApi` passed to
+the constructor must use the same `apiBasePath`, or the constructor throws
+`ArgumentError`. It reuses `CentralEmailApi`, so bearer injection, the no-redirect
+rule, the 1 MiB response cap and Idempotency-Key handling are the same. An
+identical uncertain command reuses its key; an edited one gets a new key.
 
 Operations: `context`, `listCampaigns`, `status`, `preview`, `create`, `revise`,
 `snapshot`, `pause`, `cancel` and `delete`. Approval, challenge and resume are

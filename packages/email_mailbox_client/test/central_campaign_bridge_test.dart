@@ -951,4 +951,59 @@ void main() {
       );
     });
   });
+
+  group('bridge provider route', () {
+    test('the default provider is firebase', () {
+      final api = CentralCampaignBridgeApi.create(
+        origin: Uri.parse('https://synthetic.test'),
+        client: MockClient((_) async => _response('{}', 200)),
+      );
+      expect(api.provider, CampaignBridgeProvider.firebase);
+      expect(api.api.apiBasePath, _base);
+      api.api.close();
+    });
+
+    test(
+      'shipglows_clerk targets its own route with the Clerk bearer',
+      () async {
+        const clerkBase = '/api/bridge/email-campaigns/shipglows_clerk';
+        final api = CentralCampaignBridgeApi.create(
+          origin: Uri.parse('https://synthetic.test'),
+          provider: CampaignBridgeProvider.shipglowsClerk,
+          accessTokenProvider: () async => _token,
+          client: MockClient((request) async {
+            expect(request.url.path, '$clerkBase/context');
+            expect(request.headers['Authorization'], 'Bearer $_token');
+            return _response(
+              jsonEncode({
+                'businesses': <Object>[],
+                'console_url': 'https://commandglows.test/email-engine/',
+              }),
+              200,
+            );
+          }),
+        );
+        expect(api.provider, CampaignBridgeProvider.shipglowsClerk);
+        await api.context();
+        api.api.close();
+      },
+    );
+
+    test('a constructed api on another route is refused', () {
+      final client = MockClient((_) async => _response('{}', 200));
+      final firebaseApi = CentralEmailApi(
+        origin: Uri.parse('https://synthetic.test'),
+        client: client,
+        apiBasePath: _base,
+      );
+      expect(
+        () => CentralCampaignBridgeApi(
+          firebaseApi,
+          provider: CampaignBridgeProvider.shipglowsClerk,
+        ),
+        throwsArgumentError,
+      );
+      firebaseApi.close();
+    });
+  });
 }
