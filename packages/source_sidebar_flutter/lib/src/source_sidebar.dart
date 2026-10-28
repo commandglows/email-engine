@@ -2442,6 +2442,102 @@ class _ReaderPane extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final narrow = constraints.maxWidth < 520;
+                if (narrow) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _ActionIcon(
+                        tooltip: 'Back to list',
+                        icon: Icons.arrow_back,
+                        onPressed: onBack,
+                      ),
+                      if (onArchive != null ||
+                          onDelete != null ||
+                          onMove != null ||
+                          onSummarize != null ||
+                          onDistribute != null ||
+                          onMarkSeen != null ||
+                          onOpenExternal != null)
+                        PopupMenuButton<String>(
+                          tooltip: 'More source actions',
+                          enabled: !busy,
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'archive':
+                                onArchive?.call();
+                              case 'delete':
+                                onDelete?.call();
+                              case 'move':
+                                onMove?.call();
+                              case 'summarize':
+                                onSummarize?.call();
+                              case 'distribute':
+                                onDistribute?.call();
+                              case 'seen':
+                                onMarkSeen?.call();
+                              case 'open':
+                                onOpenExternal?.call();
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            if (onArchive != null)
+                              const PopupMenuItem(
+                                value: 'archive',
+                                child: Text('Archive source'),
+                              ),
+                            if (onDelete != null)
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete source'),
+                              ),
+                            if (onMove != null)
+                              const PopupMenuItem(
+                                value: 'move',
+                                child: Text('Move source'),
+                              ),
+                            if (onSummarize != null)
+                              const PopupMenuItem(
+                                value: 'summarize',
+                                child: Text('Summarize source'),
+                              ),
+                            if (onDistribute != null)
+                              const PopupMenuItem(
+                                value: 'distribute',
+                                child: Text('Send to projects'),
+                              ),
+                            if (onMarkSeen != null)
+                              const PopupMenuItem(
+                                value: 'seen',
+                                child: Text('Mark as seen'),
+                              ),
+                            if (onOpenExternal != null)
+                              const PopupMenuItem(
+                                value: 'open',
+                                child: Text('Open in source library'),
+                              ),
+                          ],
+                        ),
+                      if (index >= 0)
+                        Text(
+                          '${index + 1} of ${items.length}',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: colors.mutedForeground),
+                        ),
+                      _ActionIcon(
+                        tooltip: 'Previous source',
+                        icon: Icons.chevron_left,
+                        onPressed: index <= 0 ? null : onPrevious,
+                      ),
+                      _ActionIcon(
+                        tooltip: 'Next source',
+                        icon: Icons.chevron_right,
+                        onPressed: index < 0 || index >= items.length - 1
+                            ? null
+                            : onNext,
+                      ),
+                    ],
+                  );
+                }
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -2490,28 +2586,6 @@ class _ReaderPane extends StatelessWidget {
                         tooltip: 'Open in source library',
                         icon: Icons.open_in_new,
                         onPressed: busy ? null : onOpenExternal,
-                      ),
-                    if (narrow &&
-                        (onMarkSeen != null || onOpenExternal != null))
-                      PopupMenuButton<String>(
-                        tooltip: 'More source actions',
-                        enabled: !busy,
-                        onSelected: (action) {
-                          if (action == 'seen') onMarkSeen?.call();
-                          if (action == 'open') onOpenExternal?.call();
-                        },
-                        itemBuilder: (context) => [
-                          if (onMarkSeen != null)
-                            const PopupMenuItem(
-                              value: 'seen',
-                              child: Text('Mark as seen'),
-                            ),
-                          if (onOpenExternal != null)
-                            const PopupMenuItem(
-                              value: 'open',
-                              child: Text('Open in source library'),
-                            ),
-                        ],
                       ),
                     if (index >= 0)
                       Text(
