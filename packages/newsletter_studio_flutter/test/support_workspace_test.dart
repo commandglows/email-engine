@@ -213,7 +213,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Service client'), findsOneWidget);
+    expect(find.byTooltip('Actualiser les boîtes'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('unconfigured context is honest and does not offer send', (

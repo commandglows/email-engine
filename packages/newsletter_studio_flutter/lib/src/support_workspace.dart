@@ -540,69 +540,49 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // One dense toolbar row; a host app with its own title (user mailbox
+        // mode) does not repeat the section name.
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            EmailCockpitLayout.gap,
-            EmailCockpitLayout.gap,
-            EmailCockpitLayout.gap,
-            EmailCockpitLayout.smallGap,
+          padding: const EdgeInsets.symmetric(
+            horizontal: EmailCockpitLayout.gap,
+            vertical: EmailCockpitLayout.smallGap,
           ),
-          child: Wrap(
-            spacing: EmailCockpitLayout.gap,
-            runSpacing: EmailCockpitLayout.mediumGap,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          child: Row(
             children: [
-              Text(
-                'Service client',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (_context?.mailboxes.isNotEmpty == true)
-                SizedBox(
-                  width: 320,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Boîte Gmail',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        isExpanded: true,
-                        value: mailbox?.id,
-                        hint: const Text('Choisir une boîte'),
-                        items: _context!.mailboxes
-                            .map(
-                              (m) => DropdownMenuItem(
-                                value: m.id,
-                                child: Text(
-                                  m.email,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: _busy
-                            ? null
-                            : (id) => _selectMailbox(
-                                _context!.mailboxes.firstWhere(
-                                  (m) => m.id == id,
-                                ),
-                              ),
-                      ),
+              if (!widget.userMailboxMode) ...[
+                Flexible(
+                  child: Text(
+                    'Service client',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-              IconButton.filledTonal(
-                tooltip: 'Ajouter une boîte Gmail',
-                onPressed: _busy || !widget.userMailboxMode
-                    ? null
-                    : _addMailbox,
-                icon: const Icon(Icons.add),
-              ),
-              IconButton.outlined(
+                const SizedBox(width: EmailCockpitLayout.mediumGap),
+              ],
+              if (_context?.mailboxes.isNotEmpty == true) ...[
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 300),
+                    child: _mailboxPicker(mailbox, theme),
+                  ),
+                ),
+                const SizedBox(width: EmailCockpitLayout.smallGap / 2),
+              ],
+              if (widget.userMailboxMode)
+                IconButton(
+                  tooltip: 'Ajouter une boîte Gmail',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 20,
+                  onPressed: _busy ? null : _addMailbox,
+                  icon: const Icon(Icons.add),
+                ),
+              IconButton(
                 tooltip: 'Actualiser les boîtes',
+                visualDensity: VisualDensity.compact,
+                iconSize: 20,
                 onPressed: _busy || _loading ? null : _loadContext,
                 icon: const Icon(Icons.refresh),
               ),
@@ -735,6 +715,46 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
       ],
     );
   }
+
+  /// Compact mailbox selector: the mail icon and tooltip replace a label.
+  Widget _mailboxPicker(SupportMailbox? mailbox, ThemeData theme) => Tooltip(
+    message: 'Boîte Gmail',
+    child: InputDecorator(
+      decoration: InputDecoration(
+        isDense: true,
+        prefixIcon: Icon(
+          Icons.mail_outline,
+          size: 18,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 36),
+        contentPadding: const EdgeInsets.fromLTRB(0, 8, 10, 8),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isDense: true,
+          isExpanded: true,
+          value: mailbox?.id,
+          style: theme.textTheme.bodyMedium,
+          hint: const Text('Choisir une boîte'),
+          items: _context!.mailboxes
+              .map(
+                (m) => DropdownMenuItem(
+                  value: m.id,
+                  child: Text(m.email, overflow: TextOverflow.ellipsis),
+                ),
+              )
+              .toList(),
+          onChanged: _busy
+              ? null
+              : (id) => _selectMailbox(
+                  _context!.mailboxes.firstWhere((m) => m.id == id),
+                ),
+        ),
+      ),
+    ),
+  );
 
   Widget _banner(String text, {bool error = false}) => Padding(
     padding: const EdgeInsets.symmetric(
