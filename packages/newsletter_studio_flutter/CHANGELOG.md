@@ -3,6 +3,7 @@
 - Redesign the service-client mailbox: unread-weighted conversation rows with
   state pills, a side-by-side dispatch column on wide layouts, sectioned
   dispatch form, and one shared notice and empty-state component across panels.
+- Keep the email header fixed in the detail pane so only the messages scroll.
 - Add explicit, disclosed saved-revision link checks to campaign review, with
   blocker/uncertain states, auditable override callbacks and stable block-to-URL
   focus navigation.

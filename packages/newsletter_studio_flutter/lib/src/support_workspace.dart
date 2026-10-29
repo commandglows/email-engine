@@ -889,11 +889,13 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
     );
   }
 
-  /// Detail pane. Wide layouts keep the dispatch panel in a side column so the
-  /// message and the proposal are visible together; narrow ones stack them.
+  /// Detail pane. The email header stays fixed and only the messages scroll.
+  /// Wide layouts keep the dispatch panel in a side column so the message and
+  /// the proposal are visible together; narrow ones stack them.
   Widget _detail({required bool compact}) {
     final thread = _thread!;
-    final message = _messageColumn(thread, compact: compact);
+    final header = _emailHeader(thread, compact: compact);
+    final body = _messageColumn(thread);
     final dispatch = widget.dispatchRepository == null
         ? null
         : DispatchPanel(
@@ -914,14 +916,24 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
           );
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (dispatch == null) return _detailScroll(message);
-        if (constraints.maxWidth < EmailCockpitLayout.dispatchBreakpoint) {
-          return _detailScroll([...message, dispatch]);
-        }
+        final stacked =
+            constraints.maxWidth < EmailCockpitLayout.dispatchBreakpoint;
+        final pane = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            Expanded(
+              child: _detailScroll(
+                dispatch != null && stacked ? [...body, dispatch] : body,
+              ),
+            ),
+          ],
+        );
+        if (dispatch == null || stacked) return pane;
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: _detailScroll(message)),
+            Expanded(child: pane),
             const VerticalDivider(width: EmailCockpitLayout.rule),
             SizedBox(
               width: EmailCockpitLayout.dispatchWidth,
@@ -938,192 +950,220 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
 
   Widget _detailScroll(List<Widget> children) => ListView(
     key: const ValueKey('support-detail-scroll'),
-    padding: const EdgeInsets.all(EmailCockpitLayout.detailGap),
+    padding: const EdgeInsets.fromLTRB(
+      EmailCockpitLayout.detailGap,
+      0,
+      EmailCockpitLayout.detailGap,
+      EmailCockpitLayout.detailGap,
+    ),
     children: children,
   );
 
-  List<Widget> _messageColumn(SupportThread thread, {required bool compact}) {
+  /// Email-level header, fixed above the messages: back, subject, Gmail state,
+  /// actions and conversation status.
+  Widget _emailHeader(SupportThread thread, {required bool compact}) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final blocked = _blocked.contains(_replyKey);
-    return [
-      if (compact)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: _busy ? null : () => setState(() => _thread = null),
-            icon: const Icon(Icons.arrow_back),
-            label: const Text('Conversations'),
-          ),
-        ),
-      Text(
-        thread.subject.isEmpty ? '(Sans objet)' : thread.subject,
-        style: theme.textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        EmailCockpitLayout.detailGap,
+        EmailCockpitLayout.detailGap,
+        EmailCockpitLayout.detailGap,
+        EmailCockpitLayout.smallGap,
       ),
-      const SizedBox(height: EmailCockpitLayout.gap),
-      Wrap(
-        spacing: EmailCockpitLayout.smallGap,
-        runSpacing: EmailCockpitLayout.smallGap,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          EmailStatePill(
-            thread.isUnread == null
-                ? 'Lecture Gmail inconnue'
-                : thread.isUnread!
-                ? 'Non lu dans Gmail'
-                : 'Lu dans Gmail',
-            tone: thread.isUnread == null
-                ? EmailPillTone.muted
-                : thread.isUnread!
-                ? EmailPillTone.strong
-                : EmailPillTone.neutral,
-          ),
-          EmailStatePill(
-            thread.isArchived == null
-                ? 'Archivage Gmail inconnu'
-                : thread.isArchived!
-                ? 'Archivé dans Gmail'
-                : 'Dans la boîte de réception Gmail',
-            tone: thread.isArchived == null
-                ? EmailPillTone.muted
-                : EmailPillTone.neutral,
-          ),
-        ],
-      ),
-      if (!widget.mailboxReadOnly || widget.userMailboxMode) ...[
-        const SizedBox(height: EmailCockpitLayout.smallGap),
-        Wrap(
-          spacing: EmailCockpitLayout.smallGap,
-          runSpacing: EmailCockpitLayout.smallGap,
-          children: [
-            OutlinedButton.icon(
-              onPressed:
-                  _busy ||
-                      _mailbox?.canModify != true ||
-                      thread.isUnread == null
-                  ? null
-                  : () => _setGmailMetadata(unread: !thread.isUnread!),
-              icon: Icon(
-                thread.isUnread == true
-                    ? Icons.mark_email_read_outlined
-                    : Icons.mark_email_unread_outlined,
-              ),
-              label: Text(
-                thread.isUnread == true
-                    ? 'Marquer comme lu'
-                    : 'Marquer comme non lu',
+          if (compact)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _busy ? null : () => setState(() => _thread = null),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Conversations'),
               ),
             ),
-            if (widget.userMailboxMode)
-              OutlinedButton.icon(
-                onPressed: _busy || _mailbox?.canModify != true
-                    ? null
-                    : () => _trashThread(thread),
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Supprimer'),
+          Text(
+            thread.subject.isEmpty ? '(Sans objet)' : thread.subject,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: EmailCockpitLayout.gap),
+          Wrap(
+            spacing: EmailCockpitLayout.smallGap,
+            runSpacing: EmailCockpitLayout.smallGap,
+            children: [
+              EmailStatePill(
+                thread.isUnread == null
+                    ? 'Lecture Gmail inconnue'
+                    : thread.isUnread!
+                    ? 'Non lu dans Gmail'
+                    : 'Lu dans Gmail',
+                tone: thread.isUnread == null
+                    ? EmailPillTone.muted
+                    : thread.isUnread!
+                    ? EmailPillTone.strong
+                    : EmailPillTone.neutral,
               ),
-            OutlinedButton.icon(
-              onPressed:
-                  _busy ||
-                      _mailbox?.canModify != true ||
-                      thread.isArchived == null
-                  ? null
-                  : () => _setGmailMetadata(archived: !thread.isArchived!),
-              icon: Icon(
-                thread.isArchived == true
-                    ? Icons.unarchive_outlined
-                    : Icons.archive_outlined,
+              EmailStatePill(
+                thread.isArchived == null
+                    ? 'Archivage Gmail inconnu'
+                    : thread.isArchived!
+                    ? 'Archivé dans Gmail'
+                    : 'Dans la boîte de réception Gmail',
+                tone: thread.isArchived == null
+                    ? EmailPillTone.muted
+                    : EmailPillTone.neutral,
               ),
-              label: Text(
-                thread.isArchived == true
-                    ? 'Restaurer dans la boîte'
-                    : 'Archiver dans Gmail',
-              ),
+            ],
+          ),
+          if (!widget.mailboxReadOnly || widget.userMailboxMode) ...[
+            const SizedBox(height: EmailCockpitLayout.smallGap),
+            Wrap(
+              spacing: EmailCockpitLayout.smallGap,
+              runSpacing: EmailCockpitLayout.smallGap,
+              children: [
+                OutlinedButton.icon(
+                  onPressed:
+                      _busy ||
+                          _mailbox?.canModify != true ||
+                          thread.isUnread == null
+                      ? null
+                      : () => _setGmailMetadata(unread: !thread.isUnread!),
+                  icon: Icon(
+                    thread.isUnread == true
+                        ? Icons.mark_email_read_outlined
+                        : Icons.mark_email_unread_outlined,
+                  ),
+                  label: Text(
+                    thread.isUnread == true
+                        ? 'Marquer comme lu'
+                        : 'Marquer comme non lu',
+                  ),
+                ),
+                if (widget.userMailboxMode)
+                  OutlinedButton.icon(
+                    onPressed: _busy || _mailbox?.canModify != true
+                        ? null
+                        : () => _trashThread(thread),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Supprimer'),
+                  ),
+                OutlinedButton.icon(
+                  onPressed:
+                      _busy ||
+                          _mailbox?.canModify != true ||
+                          thread.isArchived == null
+                      ? null
+                      : () => _setGmailMetadata(archived: !thread.isArchived!),
+                  icon: Icon(
+                    thread.isArchived == true
+                        ? Icons.unarchive_outlined
+                        : Icons.archive_outlined,
+                  ),
+                  label: Text(
+                    thread.isArchived == true
+                        ? 'Restaurer dans la boîte'
+                        : 'Archiver dans Gmail',
+                  ),
+                ),
+              ],
             ),
           ],
-        ),
-      ],
-      if (thread.isUnread == null ||
-          thread.isArchived == null ||
-          _needsMetadataRefresh)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: _busy
-                ? null
-                : () => _operation(() async {
-                    final refreshed = await widget.repository.thread(
-                      _mailbox!.id,
-                      thread.id,
-                    );
-                    if (mounted) {
-                      setState(() {
-                        _thread = refreshed;
-                        _needsMetadataRefresh = false;
-                      });
-                    }
-                  }),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Actualiser l’état Gmail'),
-          ),
-        ),
-      if (!widget.userMailboxMode) ...[
-        const SizedBox(height: EmailCockpitLayout.gap),
-        Text(
-          'Statut',
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: EmailCockpitLayout.smallGap),
-        Wrap(
-          spacing: EmailCockpitLayout.smallGap,
-          runSpacing: EmailCockpitLayout.smallGap,
-          children: SupportStatus.values
-              .map(
-                (status) => ChoiceChip(
-                  label: Text(status.label),
-                  selected: thread.status == status,
-                  onSelected: _busy || widget.mailboxReadOnly
-                      ? null
-                      : (_) => _operation(() async {
-                          await widget.repository.setStatus(
-                            _mailbox!.id,
-                            thread.id,
-                            status,
-                          );
-                          final refreshed = await widget.repository.thread(
-                            _mailbox!.id,
-                            thread.id,
-                          );
-                          if (mounted) {
-                            setState(() {
-                              _thread = refreshed;
-                              final index = _items.indexWhere(
-                                (t) => t.id == thread.id,
+          if (thread.isUnread == null ||
+              thread.isArchived == null ||
+              _needsMetadataRefresh)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _busy
+                    ? null
+                    : () => _operation(() async {
+                        final refreshed = await widget.repository.thread(
+                          _mailbox!.id,
+                          thread.id,
+                        );
+                        if (mounted) {
+                          setState(() {
+                            _thread = refreshed;
+                            _needsMetadataRefresh = false;
+                          });
+                        }
+                      }),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Actualiser l’état Gmail'),
+              ),
+            ),
+          if (!widget.userMailboxMode) ...[
+            const SizedBox(height: EmailCockpitLayout.gap),
+            Text(
+              'Statut',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: EmailCockpitLayout.smallGap),
+            Wrap(
+              spacing: EmailCockpitLayout.smallGap,
+              runSpacing: EmailCockpitLayout.smallGap,
+              children: SupportStatus.values
+                  .map(
+                    (status) => ChoiceChip(
+                      label: Text(status.label),
+                      selected: thread.status == status,
+                      onSelected: _busy || widget.mailboxReadOnly
+                          ? null
+                          : (_) => _operation(() async {
+                              await widget.repository.setStatus(
+                                _mailbox!.id,
+                                thread.id,
+                                status,
                               );
-                              if (index >= 0) {
-                                final old = _items[index];
-                                _items[index] = SupportThreadSummary(
-                                  id: old.id,
-                                  subject: old.subject,
-                                  from: old.from,
-                                  snippet: old.snippet,
-                                  status: refreshed.status,
-                                  updatedAt: old.updatedAt,
-                                  isUnread: old.isUnread,
-                                  isArchived: old.isArchived,
-                                );
+                              final refreshed = await widget.repository.thread(
+                                _mailbox!.id,
+                                thread.id,
+                              );
+                              if (mounted) {
+                                setState(() {
+                                  _thread = refreshed;
+                                  final index = _items.indexWhere(
+                                    (t) => t.id == thread.id,
+                                  );
+                                  if (index >= 0) {
+                                    final old = _items[index];
+                                    _items[index] = SupportThreadSummary(
+                                      id: old.id,
+                                      subject: old.subject,
+                                      from: old.from,
+                                      snippet: old.snippet,
+                                      status: refreshed.status,
+                                      updatedAt: old.updatedAt,
+                                      isUnread: old.isUnread,
+                                      isArchived: old.isArchived,
+                                    );
+                                  }
+                                });
                               }
-                            });
-                          }
-                        }),
-                ),
-              )
-              .toList(),
-        ),
-      ],
+                            }),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Messages and reply: the only part of the detail pane that scrolls.
+  List<Widget> _messageColumn(SupportThread thread) {
+    final blocked = _blocked.contains(_replyKey);
+    return [
       for (final message in thread.messages) _messageCard(message),
       if (!widget.mailboxReadOnly && !widget.userMailboxMode)
         _replySection(thread, blocked: blocked),
