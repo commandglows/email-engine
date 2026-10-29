@@ -15,6 +15,11 @@ abstract final class EmailCockpitLayout {
   static const sectionGap = 32.0;
   static const rule = 1.0;
   static const emptyIcon = 40.0;
+  static const emptyWidth = 360.0;
+  static const dispatchWidth = 400.0;
+  static const dispatchBreakpoint = 1040.0;
+  static const tileRadius = 12.0;
+  static const pillRadius = 999.0;
   static const navigationRadius = 14.0;
   static const padding = EdgeInsets.all(largeGap);
   static const cardPadding = padding;

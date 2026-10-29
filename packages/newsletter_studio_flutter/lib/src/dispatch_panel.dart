@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dispatch_models.dart';
+import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
 
 /// Private contribution editor. Email body is never copied automatically.
@@ -412,7 +413,13 @@ class _DispatchPanelState extends State<DispatchPanel> {
     return d.kind == 'project' ? d.projectId : _kindLabel(d.kind);
   }
 
+  /// Sub-targets are indented under their project so the hierarchy reads at a glance.
   Widget _destinationTile(DispatchDestination d) => CheckboxListTile(
+    dense: true,
+    contentPadding: EdgeInsetsDirectional.only(
+      start: d.kind == 'project' ? EmailCockpitLayout.gap : 40.0,
+      end: EmailCockpitLayout.gap,
+    ),
     value: _selected.contains(d.id),
     secondary: Icon(_kindIcon(d.kind)),
     title: Text(d.label),
@@ -428,175 +435,321 @@ class _DispatchPanelState extends State<DispatchPanel> {
           }),
   );
 
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: EmailCockpitLayout.cardPadding,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Dispatch vers les projets',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          if (widget.analyze == null)
-            const Text(
-              'Analyse IA indisponible. Préparez une proposition manuelle à valider.',
-            )
-          else
-            OutlinedButton.icon(
-              onPressed: _locked || !_ready ? null : _analyze,
-              icon: const Icon(Icons.auto_awesome),
-              label: const Text('Pré-trier cet email avec l’IA'),
-            ),
-          if (_analysis case final analysis?) ...[
-            SelectableText(
-              'Suggestion IA · ${analysis.provider} · ${analysis.model}\n${analysis.summary}',
-            ),
-            for (final risk in analysis.risks) Text('Risque suggéré : $risk'),
-            for (final candidate in analysis.candidates)
-              ListTile(
-                title: Text(
-                  _context!.destinations
-                      .firstWhere((d) => d.id == candidate.destinationId)
-                      .label,
-                ),
-                subtitle: Text(
-                  '${candidate.contributionType} · ${candidate.confidence}\n${candidate.justification}\n${candidate.risks.join("\n")}',
-                ),
-                trailing: TextButton(
-                  onPressed: _locked ? null : () => _applyCandidate(candidate),
-                  child: const Text('Utiliser'),
+  /// Pre-triage suggestions: a tonal block, one row per candidate destination.
+  Widget _analysisBlock(DispatchAnalysis analysis) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: EmailCockpitLayout.smallGap),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(EmailCockpitLayout.tileRadius),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(EmailCockpitLayout.mediumGap),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Suggestion IA · ${analysis.provider} · ${analysis.model}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
-          ],
-          const Text(
-            'Saisissez uniquement les éléments à transmettre et à conserver dans les files privées.',
-          ),
-          if (_busy && !_previewing) const LinearProgressIndicator(),
-          if (_error != null)
-            Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          TextButton.icon(
-            onPressed: _busy ? null : _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Actualiser les reçus'),
-          ),
-          if (_pending != null)
-            OutlinedButton(
-              onPressed: _busy ? null : () => _recover(_pending!),
-              child: const Text('Récupérer le résultat incertain'),
-            ),
-          for (final d in _history) ...[
-            SelectableText('Dispatch ${d.id}\n${d.summary}'),
-            for (final r in d.receipts)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text('${r.projectId} · ${r.destinationId}'),
-                subtitle: SelectableText(
-                  '${switch (r.state) {
-                    DispatchReceiptState.accepted => "Reçu en revue privée",
-                    DispatchReceiptState.failed => "Échec",
-                    DispatchReceiptState.unknown => "Résultat inconnu",
-                    DispatchReceiptState.intent => "En attente",
-                    DispatchReceiptState.inFlight => "En cours",
-                  }}${r.intakeId == null ? "" : " · ${r.intakeId}"}\n${_receiptAdvice(r)}',
-                ),
-              ),
-            if (d.unresolved)
-              OutlinedButton(
-                onPressed: _busy ? null : () => _recover(d.id),
-                child: const Text(
-                  'Réconcilier et reprendre les destinations restantes',
-                ),
-              ),
-            const Divider(),
-          ],
-          TextField(
-            controller: _summary,
-            enabled: !_locked,
-            maxLength: 4000,
-            minLines: 2,
-            maxLines: 8,
-            decoration: const InputDecoration(
-              labelText: 'Résumé factuel à transmettre',
-            ),
-          ),
-          DropdownButtonFormField<String>(
-            key: ValueKey(_type),
-            initialValue: _type,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Type d’apport'),
-            items: const [
-              DropdownMenuItem(
-                value: 'newsletter_inspiration',
-                child: Text('Inspiration de newsletter'),
-              ),
-              DropdownMenuItem(
-                value: 'thematic_source',
-                child: Text('Source thématique'),
-              ),
-              DropdownMenuItem(
-                value: 'potential_task',
-                child: Text('Tâche potentielle'),
-              ),
-              DropdownMenuItem(value: 'other', child: Text('Autre')),
+              const SizedBox(height: EmailCockpitLayout.smallGap),
+              SelectableText(analysis.summary),
+              for (final risk in analysis.risks) Text('Risque suggéré : $risk'),
+              for (final candidate in analysis.candidates)
+                _candidateTile(candidate),
             ],
-            onChanged: _locked ? null : (v) => setState(() => _type = v!),
           ),
-          TextField(
-            controller: _justification,
-            enabled: !_locked,
-            maxLength: 2000,
-            decoration: const InputDecoration(labelText: 'Justification'),
-          ),
-          TextField(
-            controller: _confidence,
-            enabled: !_locked,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Confiance facultative (0 à 1)',
-            ),
-          ),
-          TextField(
-            controller: _risks,
-            enabled: !_locked,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Risques (un par ligne, maximum 10)',
-            ),
-          ),
-          if (_context?.generatedAt case final generatedAt?)
-            Text(_freshnessLabel(generatedAt)),
-          for (final group in _groupedDestinations) ...[
-            Semantics(
-              header: true,
-              child: Text(
-                group.header,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-            ),
-            for (final d in group.items)
-              if (d.kind == 'project')
-                _destinationTile(d)
-              else
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(start: 24),
-                  child: _destinationTile(d),
+        ),
+      ),
+    );
+  }
+
+  Widget _candidateTile(DispatchAnalysisCandidate candidate) {
+    final theme = Theme.of(context);
+    final label = _context!.destinations
+        .firstWhere((d) => d.id == candidate.destinationId)
+        .label;
+    return Padding(
+      padding: const EdgeInsets.only(top: EmailCockpitLayout.smallGap),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.titleSmall),
+                Text(
+                  '${candidate.contributionType} · ${candidate.confidence}\n${candidate.justification}\n${candidate.risks.join("\n")}',
+                  style: theme.textTheme.bodySmall,
                 ),
-          ],
-          if (_context?.destinations.isEmpty == true)
-            const Text('Aucune destination projet configurée.'),
-          FilledButton(
-            onPressed: _locked || !_ready ? null : _confirm,
-            child: const Text('Revoir et confirmer le dispatch'),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: _locked ? null : () => _applyCandidate(candidate),
+            child: const Text('Utiliser'),
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
+
+  /// One earlier dispatch with its receipts and, when unresolved, recovery.
+  Widget _historyEntry(ProjectDispatch d) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: EmailCockpitLayout.smallGap),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(EmailCockpitLayout.tileRadius),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(EmailCockpitLayout.mediumGap),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SelectableText('Dispatch ${d.id}\n${d.summary}'),
+              for (final r in d.receipts)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('${r.projectId} · ${r.destinationId}'),
+                  subtitle: SelectableText(
+                    '${switch (r.state) {
+                      DispatchReceiptState.accepted => "Reçu en revue privée",
+                      DispatchReceiptState.failed => "Échec",
+                      DispatchReceiptState.unknown => "Résultat inconnu",
+                      DispatchReceiptState.intent => "En attente",
+                      DispatchReceiptState.inFlight => "En cours",
+                    }}${r.intakeId == null ? "" : " · ${r.intakeId}"}\n${_receiptAdvice(r)}',
+                  ),
+                ),
+              if (d.unresolved)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    top: EmailCockpitLayout.smallGap,
+                  ),
+                  child: OutlinedButton(
+                    onPressed: _busy ? null : () => _recover(d.id),
+                    child: const Text(
+                      'Réconcilier et reprendre les destinations restantes',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+    final generatedAt = _context?.generatedAt;
+    return Card(
+      child: Padding(
+        padding: EmailCockpitLayout.cardPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: EmailCockpitLayout.smallGap,
+              runSpacing: EmailCockpitLayout.smallGap,
+              children: [
+                Text(
+                  'Dispatch vers les projets',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _busy ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Actualiser les reçus'),
+                ),
+              ],
+            ),
+            Text(
+              'Saisissez uniquement les éléments à transmettre et à conserver dans les files privées.',
+              style: muted,
+            ),
+            if (generatedAt != null)
+              Text(_freshnessLabel(generatedAt), style: muted),
+            const SizedBox(height: EmailCockpitLayout.gap),
+            if (widget.analyze == null)
+              const EmailNotice(
+                'Analyse IA indisponible. Préparez une proposition manuelle à valider.',
+                icon: Icons.auto_awesome_outlined,
+              )
+            else
+              OutlinedButton.icon(
+                onPressed: _locked || !_ready ? null : _analyze,
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('Pré-trier cet email avec l’IA'),
+              ),
+            if (_analysis case final analysis?) _analysisBlock(analysis),
+            if (_busy && !_previewing) ...[
+              const SizedBox(height: EmailCockpitLayout.smallGap),
+              const LinearProgressIndicator(),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: EmailCockpitLayout.smallGap),
+              EmailNotice(_error!, error: true),
+            ],
+            if (_pending != null) ...[
+              const SizedBox(height: EmailCockpitLayout.smallGap),
+              OutlinedButton(
+                onPressed: _busy ? null : () => _recover(_pending!),
+                child: const Text('Récupérer le résultat incertain'),
+              ),
+            ],
+            for (final d in _history) _historyEntry(d),
+            const SizedBox(height: EmailCockpitLayout.largeGap),
+            Text('Proposition', style: theme.textTheme.titleSmall),
+            const SizedBox(height: EmailCockpitLayout.smallGap),
+            TextField(
+              controller: _summary,
+              enabled: !_locked,
+              maxLength: 4000,
+              minLines: 3,
+              maxLines: 8,
+              decoration: const InputDecoration(
+                labelText: 'Résumé factuel à transmettre',
+              ),
+            ),
+            const SizedBox(height: EmailCockpitLayout.smallGap),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey(_type),
+                    initialValue: _type,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Type d’apport',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'newsletter_inspiration',
+                        child: Text('Inspiration de newsletter'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'thematic_source',
+                        child: Text('Source thématique'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'potential_task',
+                        child: Text('Tâche potentielle'),
+                      ),
+                      DropdownMenuItem(value: 'other', child: Text('Autre')),
+                    ],
+                    onChanged: _locked
+                        ? null
+                        : (v) => setState(() => _type = v!),
+                  ),
+                ),
+                const SizedBox(width: EmailCockpitLayout.mediumGap),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _confidence,
+                    enabled: !_locked,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Confiance (0 à 1)',
+                      hintText: 'Facultative',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: EmailCockpitLayout.smallGap),
+            TextField(
+              controller: _justification,
+              enabled: !_locked,
+              maxLength: 2000,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Justification'),
+            ),
+            const SizedBox(height: EmailCockpitLayout.smallGap),
+            TextField(
+              controller: _risks,
+              enabled: !_locked,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Risques (un par ligne, maximum 10)',
+              ),
+            ),
+            const SizedBox(height: EmailCockpitLayout.largeGap),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Destinations',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                Text('${_selected.length} sur 5 au maximum', style: muted),
+              ],
+            ),
+            const SizedBox(height: EmailCockpitLayout.smallGap),
+            for (final group in _groupedDestinations) ...[
+              Semantics(
+                header: true,
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                    top: EmailCockpitLayout.smallGap,
+                    bottom: 4,
+                  ),
+                  child: Text(group.header, style: theme.textTheme.labelLarge),
+                ),
+              ),
+              Card.outlined(
+                margin: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [for (final d in group.items) _destinationTile(d)],
+                ),
+              ),
+            ],
+            if (_context?.destinations.isEmpty == true)
+              const Padding(
+                padding: EdgeInsets.only(top: EmailCockpitLayout.smallGap),
+                child: EmailNotice(
+                  'Aucune destination projet configurée.',
+                  icon: Icons.folder_off_outlined,
+                ),
+              ),
+            const SizedBox(height: EmailCockpitLayout.largeGap),
+            FilledButton.icon(
+              onPressed: _locked || !_ready ? null : _confirm,
+              icon: const Icon(Icons.fact_check_outlined),
+              label: const Text('Revoir et confirmer le dispatch'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// One project heading in the destination list, with its targets in order.

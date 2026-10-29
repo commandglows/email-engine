@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
 import 'identity_link_models.dart';
 
@@ -461,9 +462,26 @@ class _IdentityLinkPanelState extends State<IdentityLinkPanel>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'Association du compte',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                Icon(Icons.link, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: EmailCockpitLayout.smallGap),
+                Expanded(
+                  child: Text(
+                    'Association du compte',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (!_loading && _status != null)
+                  EmailStatePill(
+                    _isLinked ? 'Associé' : 'Non associé',
+                    tone: _isLinked
+                        ? EmailPillTone.strong
+                        : EmailPillTone.neutral,
+                  ),
+              ],
             ),
             if (code != null) _errorBanner(context, code),
             _body(context),

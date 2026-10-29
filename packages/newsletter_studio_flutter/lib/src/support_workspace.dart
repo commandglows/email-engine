@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
 import 'support_models.dart';
 import 'dispatch_models.dart';
@@ -377,6 +378,20 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
       ? 'indisponible'
       : date.toLocal().toString().substring(0, 16);
 
+  /// Compact list date: clock time for today, day and month otherwise.
+  String _listDateLabel(DateTime date) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    final local = date.toLocal();
+    final now = DateTime.now();
+    final today =
+        local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    return today
+        ? '${two(local.hour)}:${two(local.minute)}'
+        : '${two(local.day)}/${two(local.month)}';
+  }
+
   Future<void> _setGmailMetadata({bool? unread, bool? archived}) async {
     final thread = _thread;
     final mailbox = _mailbox;
@@ -492,11 +507,17 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   @override
   Widget build(BuildContext context) {
     final mailbox = _mailbox;
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.all(EmailCockpitLayout.gap),
+          padding: const EdgeInsets.fromLTRB(
+            EmailCockpitLayout.gap,
+            EmailCockpitLayout.gap,
+            EmailCockpitLayout.gap,
+            EmailCockpitLayout.smallGap,
+          ),
           child: Wrap(
             spacing: EmailCockpitLayout.gap,
             runSpacing: EmailCockpitLayout.mediumGap,
@@ -504,44 +525,54 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             children: [
               Text(
                 'Service client',
-                style: Theme.of(context).textTheme.headlineSmall,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               if (_context?.mailboxes.isNotEmpty == true)
                 SizedBox(
-                  width: (MediaQuery.sizeOf(context).width - 64).clamp(
-                    100,
-                    300,
-                  ),
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    value: mailbox?.id,
-                    hint: const Text('Choisir une boîte'),
-                    items: _context!.mailboxes
-                        .map(
-                          (m) => DropdownMenuItem(
-                            value: m.id,
-                            child: Text(
-                              m.email,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: _busy
-                        ? null
-                        : (id) => _selectMailbox(
-                            _context!.mailboxes.firstWhere((m) => m.id == id),
-                          ),
+                  width: 320,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Boîte Gmail',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: mailbox?.id,
+                        hint: const Text('Choisir une boîte'),
+                        items: _context!.mailboxes
+                            .map(
+                              (m) => DropdownMenuItem(
+                                value: m.id,
+                                child: Text(
+                                  m.email,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _busy
+                            ? null
+                            : (id) => _selectMailbox(
+                                _context!.mailboxes.firstWhere(
+                                  (m) => m.id == id,
+                                ),
+                              ),
+                      ),
+                    ),
                   ),
                 ),
-              IconButton(
+              IconButton.filledTonal(
                 tooltip: 'Ajouter une boîte Gmail',
                 onPressed: _busy || !widget.userMailboxMode
                     ? null
                     : _addMailbox,
                 icon: const Icon(Icons.add),
               ),
-              IconButton(
+              IconButton.outlined(
                 tooltip: 'Actualiser les boîtes',
                 onPressed: _busy || _loading ? null : _loadContext,
                 icon: const Icon(Icons.refresh),
@@ -585,48 +616,46 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _context == null
-              ? Center(
-                  child: FilledButton(
+              ? EmailEmptyState(
+                  icon: Icons.cloud_off_outlined,
+                  title: 'Service client indisponible',
+                  action: FilledButton(
                     onPressed: _loadContext,
                     child: const Text('Réessayer'),
                   ),
                 )
               : !_context!.configured
-              ? _empty(
-                  'Gmail reste à connecter',
-                  'La connexion sécurisée à vos propres boîtes Gmail doit être configurée sur le serveur.',
+              ? const EmailEmptyState(
+                  icon: Icons.settings_outlined,
+                  title: 'Gmail reste à connecter',
+                  description:
+                      'La connexion sécurisée à vos propres boîtes Gmail doit être configurée sur le serveur.',
                 )
               : mailbox == null
-              ? Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _empty(
-                      widget.userMailboxMode
-                          ? 'Aucune boîte connectée'
-                          : 'Aucune boîte autorisée',
-                      widget.userMailboxMode
-                          ? 'Connectez une boîte Gmail privée à votre compte.'
-                          : 'Ajoutez vos propres boîtes à la configuration du service client.',
-                    ),
-                    if (widget.userMailboxMode)
-                      FilledButton.icon(
-                        onPressed: _busy || widget.onConnect == null
-                            ? null
-                            : _addMailbox,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Ajouter une boîte Gmail'),
-                      ),
-                  ],
+              ? EmailEmptyState(
+                  icon: Icons.mark_email_unread_outlined,
+                  title: widget.userMailboxMode
+                      ? 'Aucune boîte connectée'
+                      : 'Aucune boîte autorisée',
+                  description: widget.userMailboxMode
+                      ? 'Connectez une boîte Gmail privée à votre compte.'
+                      : 'Ajoutez vos propres boîtes à la configuration du service client.',
+                  action: widget.userMailboxMode
+                      ? FilledButton.icon(
+                          onPressed: _busy || widget.onConnect == null
+                              ? null
+                              : _addMailbox,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Ajouter une boîte Gmail'),
+                        )
+                      : null,
                 )
               : !mailbox.connected
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Cette boîte Gmail n’est pas connectée.'),
-                      const SizedBox(height: EmailCockpitLayout.gap),
-                      if (!widget.mailboxReadOnly || widget.userMailboxMode)
-                        FilledButton(
+              ? EmailEmptyState(
+                  icon: Icons.link_off,
+                  title: 'Cette boîte Gmail n’est pas connectée.',
+                  action: !widget.mailboxReadOnly || widget.userMailboxMode
+                      ? FilledButton(
                           onPressed: _busy || widget.onConnect == null
                               ? null
                               : () => _operation(() async {
@@ -642,9 +671,8 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                                   }
                                 }),
                           child: const Text('Connecter Gmail'),
-                        ),
-                    ],
-                  ),
+                        )
+                      : null,
                 )
               : LayoutBuilder(
                   builder: (context, constraints) {
@@ -653,6 +681,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                       return _thread == null ? _list() : _detail(compact: true);
                     }
                     return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         SizedBox(
                           width: EmailCockpitLayout.conversationWidth,
@@ -661,9 +690,11 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                         const VerticalDivider(width: EmailCockpitLayout.rule),
                         Expanded(
                           child: _thread == null
-                              ? _empty(
-                                  'Vos conversations clients',
-                                  'Sélectionnez une conversation pour la lire et répondre.',
+                              ? const EmailEmptyState(
+                                  icon: Icons.forum_outlined,
+                                  title: 'Vos conversations clients',
+                                  description:
+                                      'Sélectionnez une conversation pour la lire et répondre.',
                                 )
                               : _detail(compact: false),
                         ),
@@ -681,35 +712,9 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
       horizontal: EmailCockpitLayout.gap,
       vertical: EmailCockpitLayout.smallGap,
     ),
-    child: Semantics(
-      liveRegion: true,
-      child: Text(
-        text,
-        style: TextStyle(
-          color: error ? Theme.of(context).colorScheme.error : null,
-        ),
-      ),
-    ),
+    child: EmailNotice(text, error: error),
   );
-  Widget _empty(String title, String description) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(EmailCockpitLayout.largeGap),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.forum_outlined, size: EmailCockpitLayout.emptyIcon),
-          const SizedBox(height: EmailCockpitLayout.gap),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: EmailCockpitLayout.smallGap),
-          Text(description, textAlign: TextAlign.center),
-        ],
-      ),
-    ),
-  );
+
   Widget _list() {
     final items = _items
         .where(
@@ -721,11 +726,17 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(EmailCockpitLayout.mediumGap),
+          padding: const EdgeInsets.fromLTRB(
+            EmailCockpitLayout.gap,
+            0,
+            EmailCockpitLayout.gap,
+            EmailCockpitLayout.smallGap,
+          ),
           child: TextField(
             decoration: const InputDecoration(
-              labelText: 'Filtrer les conversations chargées',
+              hintText: 'Filtrer les conversations chargées',
               prefixIcon: Icon(Icons.search),
+              isDense: true,
             ),
             onChanged: (v) => setState(() => _filter = v),
           ),
@@ -734,35 +745,11 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
           child: ListView(
             children: [
               if (items.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(EmailCockpitLayout.largeGap),
-                  child: Text('Aucune conversation à afficher.'),
+                const EmailEmptyState(
+                  icon: Icons.inbox_outlined,
+                  title: 'Aucune conversation à afficher.',
                 ),
-              for (final item in items)
-                ListTile(
-                  selected: _thread?.id == item.id,
-                  enabled: !_busy,
-                  title: Text(
-                    item.subject.isEmpty ? '(Sans objet)' : item.subject,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    '${item.from}\n${item.status.label} · ${item.isUnread == null
-                        ? "Lecture Gmail inconnue"
-                        : item.isUnread!
-                        ? "Non lu"
-                        : "Lu"} · ${item.isArchived == null
-                        ? "Archivage inconnu"
-                        : item.isArchived!
-                        ? "Archivé"
-                        : "Boîte de réception"} · ${item.snippet}',
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  isThreeLine: true,
-                  onTap: () => _open(item),
-                ),
+              for (final item in items) _threadTile(item),
               if (_cursor != null)
                 Padding(
                   padding: const EdgeInsets.all(EmailCockpitLayout.gap),
@@ -794,25 +781,122 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
     );
   }
 
-  Widget _detail({required bool compact}) {
-    final thread = _thread!;
-    final blocked = _blocked.contains(_replyKey);
-    return ListView(
-      key: const ValueKey('support-detail-scroll'),
-      padding: const EdgeInsets.all(EmailCockpitLayout.detailGap),
-      children: [
-        if (compact)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _busy ? null : () => setState(() => _thread = null),
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('Conversations'),
+  /// One conversation row: unread dot and weight, sender, snippet, state pills.
+  Widget _threadTile(SupportThreadSummary item) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final selected = _thread?.id == item.id;
+    final unread = item.isUnread == true;
+    final updatedAt = item.updatedAt;
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Material(
+        color: selected ? scheme.secondaryContainer : Colors.transparent,
+        child: InkWell(
+          onTap: _busy ? null : () => _open(item),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              EmailCockpitLayout.gap,
+              EmailCockpitLayout.mediumGap,
+              EmailCockpitLayout.gap,
+              EmailCockpitLayout.mediumGap,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (unread) ...[
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const SizedBox(width: 8, height: 8),
+                      ),
+                      const SizedBox(width: EmailCockpitLayout.smallGap),
+                    ],
+                    Expanded(
+                      child: Text(
+                        item.subject.isEmpty ? '(Sans objet)' : item.subject,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: unread
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (updatedAt != null) ...[
+                      const SizedBox(width: EmailCockpitLayout.smallGap),
+                      Text(
+                        _listDateLabel(updatedAt),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  item.from,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                if (item.snippet.isNotEmpty)
+                  Text(
+                    item.snippet,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                const SizedBox(height: EmailCockpitLayout.smallGap),
+                Wrap(
+                  spacing: EmailCockpitLayout.smallGap,
+                  runSpacing: 4,
+                  children: [
+                    EmailStatePill(
+                      item.status.label,
+                      tone: item.status == SupportStatus.pending
+                          ? EmailPillTone.strong
+                          : EmailPillTone.neutral,
+                    ),
+                    if (item.isUnread == null)
+                      const EmailStatePill(
+                        'Lecture Gmail inconnue',
+                        tone: EmailPillTone.muted,
+                      ),
+                    if (item.isArchived == true)
+                      const EmailStatePill('Archivé'),
+                    if (item.isArchived == null)
+                      const EmailStatePill(
+                        'Archivage inconnu',
+                        tone: EmailPillTone.muted,
+                      ),
+                  ],
+                ),
+              ],
             ),
           ),
-        Text(thread.subject, style: Theme.of(context).textTheme.headlineSmall),
-        if (widget.dispatchRepository != null)
-          DispatchPanel(
+        ),
+      ),
+    );
+  }
+
+  /// Detail pane. Wide layouts keep the dispatch panel in a side column so the
+  /// message and the proposal are visible together; narrow ones stack them.
+  Widget _detail({required bool compact}) {
+    final thread = _thread!;
+    final message = _messageColumn(thread, compact: compact);
+    final dispatch = widget.dispatchRepository == null
+        ? null
+        : DispatchPanel(
             key: ValueKey(
               'dispatch/${_mailbox!.id}/${thread.id}/${thread.latestMessageId}',
             ),
@@ -827,242 +911,373 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                     destinations,
                     _mailbox!.id,
                   ),
+          );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (dispatch == null) return _detailScroll(message);
+        if (constraints.maxWidth < EmailCockpitLayout.dispatchBreakpoint) {
+          return _detailScroll([...message, dispatch]);
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: _detailScroll(message)),
+            const VerticalDivider(width: EmailCockpitLayout.rule),
+            SizedBox(
+              width: EmailCockpitLayout.dispatchWidth,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(EmailCockpitLayout.detailGap),
+                child: dispatch,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _detailScroll(List<Widget> children) => ListView(
+    key: const ValueKey('support-detail-scroll'),
+    padding: const EdgeInsets.all(EmailCockpitLayout.detailGap),
+    children: children,
+  );
+
+  List<Widget> _messageColumn(SupportThread thread, {required bool compact}) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final blocked = _blocked.contains(_replyKey);
+    return [
+      if (compact)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _busy ? null : () => setState(() => _thread = null),
+            icon: const Icon(Icons.arrow_back),
+            label: const Text('Conversations'),
           ),
+        ),
+      Text(
+        thread.subject.isEmpty ? '(Sans objet)' : thread.subject,
+        style: theme.textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: EmailCockpitLayout.gap),
+      Wrap(
+        spacing: EmailCockpitLayout.smallGap,
+        runSpacing: EmailCockpitLayout.smallGap,
+        children: [
+          EmailStatePill(
+            thread.isUnread == null
+                ? 'Lecture Gmail inconnue'
+                : thread.isUnread!
+                ? 'Non lu dans Gmail'
+                : 'Lu dans Gmail',
+            tone: thread.isUnread == null
+                ? EmailPillTone.muted
+                : thread.isUnread!
+                ? EmailPillTone.strong
+                : EmailPillTone.neutral,
+          ),
+          EmailStatePill(
+            thread.isArchived == null
+                ? 'Archivage Gmail inconnu'
+                : thread.isArchived!
+                ? 'Archivé dans Gmail'
+                : 'Dans la boîte de réception Gmail',
+            tone: thread.isArchived == null
+                ? EmailPillTone.muted
+                : EmailPillTone.neutral,
+          ),
+        ],
+      ),
+      if (!widget.mailboxReadOnly || widget.userMailboxMode) ...[
         const SizedBox(height: EmailCockpitLayout.smallGap),
         Wrap(
           spacing: EmailCockpitLayout.smallGap,
           runSpacing: EmailCockpitLayout.smallGap,
           children: [
-            Chip(
-              label: Text(
-                thread.isUnread == null
-                    ? 'Lecture Gmail inconnue'
-                    : thread.isUnread!
-                    ? 'Non lu dans Gmail'
-                    : 'Lu dans Gmail',
-              ),
-            ),
-            Chip(
-              label: Text(
-                thread.isArchived == null
-                    ? 'Archivage Gmail inconnu'
-                    : thread.isArchived!
-                    ? 'Archivé dans Gmail'
-                    : 'Dans la boîte de réception Gmail',
-              ),
-            ),
-            if (!widget.mailboxReadOnly || widget.userMailboxMode) ...[
-              OutlinedButton.icon(
-                onPressed:
-                    _busy ||
-                        _mailbox?.canModify != true ||
-                        thread.isUnread == null
-                    ? null
-                    : () => _setGmailMetadata(unread: !thread.isUnread!),
-                icon: Icon(
-                  thread.isUnread == true
-                      ? Icons.mark_email_read_outlined
-                      : Icons.mark_email_unread_outlined,
-                ),
-                label: Text(
-                  thread.isUnread == true
-                      ? 'Marquer comme lu'
-                      : 'Marquer comme non lu',
-                ),
-              ),
-              if (widget.userMailboxMode)
-                OutlinedButton.icon(
-                  onPressed: _busy || _mailbox?.canModify != true
-                      ? null
-                      : () => _trashThread(thread),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Supprimer'),
-                ),
-              OutlinedButton.icon(
-                onPressed:
-                    _busy ||
-                        _mailbox?.canModify != true ||
-                        thread.isArchived == null
-                    ? null
-                    : () => _setGmailMetadata(archived: !thread.isArchived!),
-                icon: Icon(
-                  thread.isArchived == true
-                      ? Icons.unarchive_outlined
-                      : Icons.archive_outlined,
-                ),
-                label: Text(
-                  thread.isArchived == true
-                      ? 'Restaurer dans la boîte'
-                      : 'Archiver dans Gmail',
-                ),
-              ),
-            ],
-            if (thread.isUnread == null ||
-                thread.isArchived == null ||
-                _needsMetadataRefresh)
-              TextButton.icon(
-                onPressed: _busy
-                    ? null
-                    : () => _operation(() async {
-                        final refreshed = await widget.repository.thread(
-                          _mailbox!.id,
-                          thread.id,
-                        );
-                        if (mounted) {
-                          setState(() {
-                            _thread = refreshed;
-                            _needsMetadataRefresh = false;
-                          });
-                        }
-                      }),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Actualiser l’état Gmail'),
-              ),
-          ],
-        ),
-        if (!widget.userMailboxMode)
-          const SizedBox(height: EmailCockpitLayout.mediumGap),
-        if (!widget.userMailboxMode)
-          Wrap(
-            spacing: EmailCockpitLayout.smallGap,
-            runSpacing: EmailCockpitLayout.smallGap,
-            children: SupportStatus.values
-                .map(
-                  (status) => ChoiceChip(
-                    label: Text(status.label),
-                    selected: thread.status == status,
-                    onSelected: _busy || widget.mailboxReadOnly
-                        ? null
-                        : (_) => _operation(() async {
-                            await widget.repository.setStatus(
-                              _mailbox!.id,
-                              thread.id,
-                              status,
-                            );
-                            final refreshed = await widget.repository.thread(
-                              _mailbox!.id,
-                              thread.id,
-                            );
-                            if (mounted) {
-                              setState(() {
-                                _thread = refreshed;
-                                final index = _items.indexWhere(
-                                  (t) => t.id == thread.id,
-                                );
-                                if (index >= 0) {
-                                  final old = _items[index];
-                                  _items[index] = SupportThreadSummary(
-                                    id: old.id,
-                                    subject: old.subject,
-                                    from: old.from,
-                                    snippet: old.snippet,
-                                    status: refreshed.status,
-                                    updatedAt: old.updatedAt,
-                                    isUnread: old.isUnread,
-                                    isArchived: old.isArchived,
-                                  );
-                                }
-                              });
-                            }
-                          }),
-                  ),
-                )
-                .toList(),
-          ),
-        for (final message in thread.messages)
-          Card(
-            margin: const EdgeInsets.only(top: EmailCockpitLayout.gap),
-            child: Padding(
-              padding: const EdgeInsets.all(EmailCockpitLayout.gap),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    message.from,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  Text('À : ${message.to}'),
-                  if (message.date != null)
-                    Text(message.date!.toLocal().toString().substring(0, 16)),
-                  const Divider(),
-                  SelectableText(
-                    message.text.isEmpty
-                        ? 'Aucun contenu texte disponible.'
-                        : message.text,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        if (!widget.mailboxReadOnly && !widget.userMailboxMode) ...[
-          const SizedBox(height: EmailCockpitLayout.detailGap),
-          Text(
-            'Réponse via Gmail',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: EmailCockpitLayout.smallGap),
-          if (thread.replyTo != null)
-            SelectableText('Adresse de routage : ${thread.replyTo}'),
-          const Text(
-            'Pour un email relayé, le routage Mutant Mail doit être conservé. L’adresse Gmail ne doit pas remplacer votre alias de domaine.',
-          ),
-          if (!thread.canReply || !_context!.canReply)
-            Padding(
-              padding: EdgeInsets.symmetric(
-                vertical: EmailCockpitLayout.mediumGap,
-              ),
-              child: Text(switch (thread.replyDisabledReason) {
-                'reply_delivery_unknown' =>
-                  'Un envoi précédent a un résultat incertain. Vérifiez les messages envoyés dans Gmail.',
-                'reply_already_submitted' =>
-                  'Une réponse a déjà été transmise pour ce message.',
-                'relay_not_verified' =>
-                  'Le routage du relais doit être vérifié avant de répondre.',
-                'synthetic_demo' =>
-                  'Démonstration : aucun email ne peut être envoyé.',
-                _ =>
-                  'Les réponses ne sont pas activées pour cette conversation.',
-              }),
-            ),
-          if (blocked)
-            const Padding(
-              padding: EdgeInsets.symmetric(
-                vertical: EmailCockpitLayout.mediumGap,
-              ),
-              child: Text(
-                'Nouvel envoi bloqué pour éviter un doublon. Vérifiez cette conversation dans Gmail.',
-              ),
-            ),
-          const SizedBox(height: EmailCockpitLayout.mediumGap),
-          TextField(
-            controller: _reply,
-            minLines: 4,
-            maxLines: 12,
-            maxLength: 20000,
-            enabled: !_busy && !blocked,
-            decoration: const InputDecoration(
-              labelText: 'Votre réponse',
-              helperText: 'Brouillon conservé dans cette session.',
-            ),
-            onChanged: (text) => setState(() => _drafts[_key] = text),
-          ),
-          const SizedBox(height: EmailCockpitLayout.mediumGap),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
+            OutlinedButton.icon(
               onPressed:
                   _busy ||
-                      blocked ||
-                      !thread.canReply ||
-                      !_context!.canReply ||
-                      _reply.text.trim().isEmpty
+                      _mailbox?.canModify != true ||
+                      thread.isUnread == null
                   ? null
-                  : _send,
-              icon: const Icon(Icons.send_outlined),
-              label: const Text('Relire et envoyer'),
+                  : () => _setGmailMetadata(unread: !thread.isUnread!),
+              icon: Icon(
+                thread.isUnread == true
+                    ? Icons.mark_email_read_outlined
+                    : Icons.mark_email_unread_outlined,
+              ),
+              label: Text(
+                thread.isUnread == true
+                    ? 'Marquer comme lu'
+                    : 'Marquer comme non lu',
+              ),
+            ),
+            if (widget.userMailboxMode)
+              OutlinedButton.icon(
+                onPressed: _busy || _mailbox?.canModify != true
+                    ? null
+                    : () => _trashThread(thread),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Supprimer'),
+              ),
+            OutlinedButton.icon(
+              onPressed:
+                  _busy ||
+                      _mailbox?.canModify != true ||
+                      thread.isArchived == null
+                  ? null
+                  : () => _setGmailMetadata(archived: !thread.isArchived!),
+              icon: Icon(
+                thread.isArchived == true
+                    ? Icons.unarchive_outlined
+                    : Icons.archive_outlined,
+              ),
+              label: Text(
+                thread.isArchived == true
+                    ? 'Restaurer dans la boîte'
+                    : 'Archiver dans Gmail',
+              ),
+            ),
+          ],
+        ),
+      ],
+      if (thread.isUnread == null ||
+          thread.isArchived == null ||
+          _needsMetadataRefresh)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _busy
+                ? null
+                : () => _operation(() async {
+                    final refreshed = await widget.repository.thread(
+                      _mailbox!.id,
+                      thread.id,
+                    );
+                    if (mounted) {
+                      setState(() {
+                        _thread = refreshed;
+                        _needsMetadataRefresh = false;
+                      });
+                    }
+                  }),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Actualiser l’état Gmail'),
+          ),
+        ),
+      if (!widget.userMailboxMode) ...[
+        const SizedBox(height: EmailCockpitLayout.gap),
+        Text(
+          'Statut',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        Wrap(
+          spacing: EmailCockpitLayout.smallGap,
+          runSpacing: EmailCockpitLayout.smallGap,
+          children: SupportStatus.values
+              .map(
+                (status) => ChoiceChip(
+                  label: Text(status.label),
+                  selected: thread.status == status,
+                  onSelected: _busy || widget.mailboxReadOnly
+                      ? null
+                      : (_) => _operation(() async {
+                          await widget.repository.setStatus(
+                            _mailbox!.id,
+                            thread.id,
+                            status,
+                          );
+                          final refreshed = await widget.repository.thread(
+                            _mailbox!.id,
+                            thread.id,
+                          );
+                          if (mounted) {
+                            setState(() {
+                              _thread = refreshed;
+                              final index = _items.indexWhere(
+                                (t) => t.id == thread.id,
+                              );
+                              if (index >= 0) {
+                                final old = _items[index];
+                                _items[index] = SupportThreadSummary(
+                                  id: old.id,
+                                  subject: old.subject,
+                                  from: old.from,
+                                  snippet: old.snippet,
+                                  status: refreshed.status,
+                                  updatedAt: old.updatedAt,
+                                  isUnread: old.isUnread,
+                                  isArchived: old.isArchived,
+                                );
+                              }
+                            });
+                          }
+                        }),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+      for (final message in thread.messages) _messageCard(message),
+      if (!widget.mailboxReadOnly && !widget.userMailboxMode)
+        _replySection(thread, blocked: blocked),
+    ];
+  }
+
+  Widget _messageCard(SupportMessage message) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final sender = message.from.trim();
+    return Card(
+      margin: const EdgeInsets.only(top: EmailCockpitLayout.gap),
+      child: Padding(
+        padding: const EdgeInsets.all(EmailCockpitLayout.gap),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: scheme.secondaryContainer,
+                  child: Text(
+                    sender.isEmpty ? '?' : sender[0].toUpperCase(),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: scheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: EmailCockpitLayout.mediumGap),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        message.from,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      Text(
+                        'À : ${message.to}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (message.date != null) ...[
+                  const SizedBox(width: EmailCockpitLayout.smallGap),
+                  Text(
+                    message.date!.toLocal().toString().substring(0, 16),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const Divider(height: EmailCockpitLayout.gap),
+            SelectableText(
+              message.text.isEmpty
+                  ? 'Aucun contenu texte disponible.'
+                  : message.text,
+              style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _replySection(SupportThread thread, {required bool blocked}) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: EmailCockpitLayout.detailGap),
+        Text(
+          'Réponse via Gmail',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        if (thread.replyTo != null)
+          SelectableText('Adresse de routage : ${thread.replyTo}'),
+        Text(
+          'Pour un email relayé, le routage Mutant Mail doit être conservé. L’adresse Gmail ne doit pas remplacer votre alias de domaine.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        if (!thread.canReply || !_context!.canReply)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: EmailCockpitLayout.mediumGap,
+            ),
+            child: EmailNotice(switch (thread.replyDisabledReason) {
+              'reply_delivery_unknown' =>
+                'Un envoi précédent a un résultat incertain. Vérifiez les messages envoyés dans Gmail.',
+              'reply_already_submitted' =>
+                'Une réponse a déjà été transmise pour ce message.',
+              'relay_not_verified' =>
+                'Le routage du relais doit être vérifié avant de répondre.',
+              'synthetic_demo' =>
+                'Démonstration : aucun email ne peut être envoyé.',
+              _ => 'Les réponses ne sont pas activées pour cette conversation.',
+            }),
+          ),
+        if (blocked)
+          const Padding(
+            padding: EdgeInsets.symmetric(
+              vertical: EmailCockpitLayout.mediumGap,
+            ),
+            child: EmailNotice(
+              'Nouvel envoi bloqué pour éviter un doublon. Vérifiez cette conversation dans Gmail.',
+              error: true,
             ),
           ),
-        ],
+        const SizedBox(height: EmailCockpitLayout.mediumGap),
+        TextField(
+          controller: _reply,
+          minLines: 4,
+          maxLines: 12,
+          maxLength: 20000,
+          enabled: !_busy && !blocked,
+          decoration: const InputDecoration(
+            labelText: 'Votre réponse',
+            helperText: 'Brouillon conservé dans cette session.',
+          ),
+          onChanged: (text) => setState(() => _drafts[_key] = text),
+        ),
+        const SizedBox(height: EmailCockpitLayout.mediumGap),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.icon(
+            onPressed:
+                _busy ||
+                    blocked ||
+                    !thread.canReply ||
+                    !_context!.canReply ||
+                    _reply.text.trim().isEmpty
+                ? null
+                : _send,
+            icon: const Icon(Icons.send_outlined),
+            label: const Text('Relire et envoyer'),
+          ),
+        ),
       ],
     );
   }
