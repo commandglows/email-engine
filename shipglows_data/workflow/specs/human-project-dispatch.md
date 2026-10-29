@@ -68,6 +68,15 @@ separate. Account-provider analysis is permitted only after visible per-analysis
 consent, using that user's BYOK key, authorized project context and bounded,
 transient input. No synthetic suggestion may appear as real AI analysis.
 
+Triage contract v2 (2026-10-29, `email_mailbox_client`
+`email_triage_contract.dart`): the request carries `destinations`
+(`id`, `kind`, `label`, `project_id`, `project_label`) instead of project ids,
+and every candidate names a `destination_id`. The package owns the request body
+and the response validation; each host owns its decider. ShipGlows.app routes
+to projects from their pitches (runner `POST /v1/email-triage`); ContentGlows
+routes to contents (lab `POST /api/email-triage`, v2 body). Both use TypeSafe's
+Jev decision model with one predicate per project, so one email can fit several.
+
 Intake POST /api/projects/{project_id}/review-intake accepts client_intake_id
 (stable UUID), source_key, summary (1..4000), contribution_type, justification
 (0..2000), confidence (optional 0..1), risks (max 10, 500 each). No raw body,
