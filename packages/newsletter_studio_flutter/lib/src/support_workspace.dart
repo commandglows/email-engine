@@ -449,15 +449,27 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
     });
   }
 
-  Future<void> _open(SupportThreadSummary item) => _operation(() async {
-    final thread = await widget.repository.thread(_mailbox!.id, item.id);
-    if (!mounted) return;
-    setState(() {
-      _thread = thread;
-      _needsMetadataRefresh = false;
-      _reply.text = _drafts[_key] ?? '';
+  Future<void> _open(SupportThreadSummary item) async {
+    await _operation(() async {
+      final thread = await widget.repository.thread(_mailbox!.id, item.id);
+      if (!mounted) return;
+      setState(() {
+        _thread = thread;
+        _needsMetadataRefresh = false;
+        _reply.text = _drafts[_key] ?? '';
+      });
     });
-  });
+    // Reading a conversation marks it read, as Gmail does. Runs after
+    // _operation releases _busy, because the metadata call goes through it.
+    final opened = _thread;
+    if (mounted &&
+        opened?.id == item.id &&
+        opened?.isUnread == true &&
+        (!widget.mailboxReadOnly || widget.userMailboxMode) &&
+        _mailbox?.canModify == true) {
+      await _setGmailMetadata(unread: false);
+    }
+  }
 
   Future<void> _send() async {
     final thread = _thread!;

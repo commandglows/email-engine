@@ -47,6 +47,8 @@ separately from the local pending/waiting/resolved workflow status. Mutations ar
 disabled unless that mailbox context reports `can_modify`; a connection without
 stored `gmail.modify` scope evidence stays read-only until reconnect and never
 implies that a write succeeded.
+Opening an unread conversation marks it read in Gmail when the mailbox can modify
+it; the manual read/unread control stays available.
 After a metadata command, the app validates the server's Gmail re-read receipt
 and reloads the thread before changing its displayed state. Failed updates leave
 the old state visible and offer an explicit refresh.
