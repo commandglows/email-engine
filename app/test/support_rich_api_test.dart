@@ -196,7 +196,7 @@ void main() {
   });
 
   test(
-    'HTML defense removes active content and tracking but preserves formatting',
+    'HTML defense removes active content and keeps formatting and HTTPS images',
     () {
       final result = safeEmailHtml('''<script>alert(1)</script><style>x</style>
       <p onclick="evil()" style="background:url(https://track.test)">Hello <b>team</b></p>
@@ -206,13 +206,14 @@ void main() {
       expect(result, contains('<b>team</b>'));
       expect(result, contains('<table>'));
       expect(result, contains('href="https://example.test/path"'));
+      expect(result, contains('src="https://track.test"'));
       for (final forbidden in [
         'script',
         'iframe',
         'onclick',
         'background:',
         'javascript:',
-        'https://track.test',
+        'http://',
       ]) {
         expect(result, isNot(contains(forbidden)));
       }

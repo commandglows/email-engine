@@ -20,9 +20,11 @@ support and campaigns keep separate credentials, provider ownership and states.
 Draft replies stay in widget session memory across section changes and responsive
 resizing; refreshing or closing the browser does not persist those drafts.
 
-Support now offers an enriched, selectable HTML reader with tables, lists and
-emphasis, plus a plain-text toggle. Both server and client strip active content;
-remote images never load, and opening HTTPS links requires confirmation.
+Support offers an enriched, selectable HTML reader from the shared
+`newsletter_studio_flutter` package, with layout (tables, colours, spacing),
+HTTPS images and a per-message plain-text toggle. Both server and client strip
+active content and non-HTTPS resources; `cid:` images are not shown yet, and
+opening HTTPS links requires confirmation.
 Attachments can be downloaded through the authenticated same-origin API or
 added/removed from a reply draft. The limit is 10 outgoing files and 3 MiB total;
 downloads are limited to 3 MiB per file so base64 JSON fits the hosted function

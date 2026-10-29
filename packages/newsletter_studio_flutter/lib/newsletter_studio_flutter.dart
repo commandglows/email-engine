@@ -8,6 +8,7 @@ export 'src/identity_link_panel.dart';
 
 export 'src/email_cockpit.dart';
 export 'src/support_models.dart';
+export 'src/support_rich_html.dart';
 export 'src/support_workspace.dart';
 
 export 'src/newsletter_studio.dart';

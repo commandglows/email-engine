@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Show support message layouts (tables, colours, spacing) and HTTPS images in a
+  shared rich reader with a per-message plain-text toggle; the app reuses it.
 - Redesign the service-client mailbox: unread-weighted conversation rows with
   state pills, a side-by-side dispatch column on wide layouts, sectioned
   dispatch form, and one shared notice and empty-state component across panels.

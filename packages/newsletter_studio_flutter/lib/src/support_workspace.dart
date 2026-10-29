@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
 import 'support_models.dart';
+import 'support_rich_html.dart';
 import 'dispatch_models.dart';
 import 'dispatch_panel.dart';
 
@@ -10,6 +11,7 @@ class SupportWorkspace extends StatefulWidget {
     super.key,
     required this.repository,
     this.onConnect,
+    this.onOpenLink,
     this.dispatchRepository,
     this.mailboxReadOnly = false,
     this.userMailboxMode = false,
@@ -34,6 +36,10 @@ class SupportWorkspace extends StatefulWidget {
   )?
   onAnalyzeThread;
   final Future<void> Function(Uri)? onConnect;
+
+  /// Opens a link from an email body after the reader confirms it.
+  /// Without it, links in email bodies are shown but not tappable.
+  final Future<void> Function(Uri)? onOpenLink;
   @override
   State<SupportWorkspace> createState() => _SupportWorkspaceState();
 }
@@ -1234,12 +1240,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
               ],
             ),
             const Divider(height: EmailCockpitLayout.gap),
-            SelectableText(
-              message.text.isEmpty
-                  ? 'Aucun contenu texte disponible.'
-                  : message.text,
-              style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
-            ),
+            SupportMessageBody(message: message, onOpenLink: widget.onOpenLink),
           ],
         ),
       ),

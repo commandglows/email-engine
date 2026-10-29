@@ -37,8 +37,10 @@ enrichie et recherche exhaustive côté serveur dans les boîtes Gmail autorisé
   Les participants sans routage autorisé bloquent la réponse à tous.
 - Fichiers : téléchargement authentifié ; maximum 10 fichiers et 3 Mio au total
   pour une réponse. Validation des tailles et du MIME avant toute réservation.
-- HTML assaini côté serveur, affichage natif Flutter sans exécution de scripts,
-  sans images externes ; ouverture des liens HTTPS seulement après action humaine.
+- HTML assaini côté serveur (styles et attributs de tableau sûrs), affichage natif
+  Flutter sans exécution de scripts ; images HTTPS affichées, `cid:` pas encore ;
+  ouverture des liens HTTPS seulement après confirmation. Lecteur partagé dans
+  `newsletter_studio_flutter` (`SupportMessageBody`), utilisé par Content Glows et l'app.
 - Recherche Gmail serveur sur toute la boîte, résultats paginés ; distinction
   explicite avec le filtre local de la liste commune.
 - Les résultats incertains restent verrouillés durablement ; aucun renvoi automatique.
@@ -81,7 +83,9 @@ modifiées. Les contrôles locaux ne prouvent pas OAuth ou réception réelle.
 - Réponse à tous : destinataires dérivés serveur, participants non vérifiés bloqués,
   confirmation dans l'interface et verrou durable couvrant mode et fichiers.
 - HTML : tests de contenus hostiles, rendu enrichi et bascule texte seul ; texte
-  de secours pour HTML seul, aucune ressource externe automatique.
+  de secours pour HTML seul. Changement 2026-10-29 : images HTTPS chargées à
+  l'affichage (choix explicite), styles filtrés. Non fait : `cid:`, rendu vérifié
+  en session avec Gmail réel, tests non relancés.
 - Recherche : Gmail metadata sur toute la boîte, curseurs conservant la requête,
   test intégré de deux pages et test serveur de conversation volumineuse.
 - App : analyse sans problème. Serveur : TypeScript ciblé passe ; contrôle Astro
