@@ -321,7 +321,7 @@ packages:
   shipglows_flutter_zoom:
     dependency: transitive
     description:
-      path: "../packages/shipglows_flutter_zoom"
+      path: "../../shipglows-ui-engine/flutter/shipglows_flutter_zoom"
       relative: true
     source: path
     version: "0.1.0"
