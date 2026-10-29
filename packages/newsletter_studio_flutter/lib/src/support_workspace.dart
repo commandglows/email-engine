@@ -13,6 +13,7 @@ class SupportWorkspace extends StatefulWidget {
     this.dispatchRepository,
     this.mailboxReadOnly = false,
     this.userMailboxMode = false,
+    this.confirmTrash = true,
     this.oauthReturnOrigin,
     this.onAnalyzeThread,
   });
@@ -22,6 +23,9 @@ class SupportWorkspace extends StatefulWidget {
   /// Embedded session bridges allow reading and human dispatch only.
   final bool mailboxReadOnly;
   final bool userMailboxMode;
+
+  /// When false, deleting a conversation moves it to the Gmail trash at once.
+  final bool confirmTrash;
   final String? oauthReturnOrigin;
   final Future<DispatchAnalysis> Function(
     SupportThread thread,
@@ -216,25 +220,27 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   }
 
   Future<void> _trashThread(SupportThread thread) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Supprimer cette conversation ?'),
-        content: const Text(
-          'Gmail déplacera cette conversation dans la corbeille. Cette action ne sera jamais déclenchée par le dispatch.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Mettre à la corbeille'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = !widget.confirmTrash
+        ? true
+        : await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Supprimer cette conversation ?'),
+              content: const Text(
+                'Gmail déplacera cette conversation dans la corbeille. Cette action ne sera jamais déclenchée par le dispatch.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Annuler'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Mettre à la corbeille'),
+                ),
+              ],
+            ),
+          );
     if (confirmed != true || _mailbox == null) return;
     await _operation(() async {
       await widget.repository.trashThread(
