@@ -173,6 +173,15 @@ forwarding, Gmail metadata action, content generation or publication is part of
 dispatch. Server identity, privacy policy and project authorization remain
 activation requirements.
 
+A host with another destination model passes `DispatchPanelCopy` through
+`SupportWorkspace.dispatchCopy` (or `DispatchPanel.copy`): title, notices,
+kind and contribution-type labels and receipt advice. The default copy is the
+project wording. ContentGlows uses it for « Dispatch vers les contenus » with
+its own lab-backed repository and the kinds `new_content`, `content_draft`,
+`content_in_progress`, `content_idea` and `published_article`. A failed receipt
+marked `terminal` by the host no longer locks new proposals. Above twelve
+destinations the panel shows a label filter; checked destinations stay visible.
+
 # Identity link panel
 
 `IdentityLinkPanel(gateway:, providerLabel:, otherAppLabel:)` links this account

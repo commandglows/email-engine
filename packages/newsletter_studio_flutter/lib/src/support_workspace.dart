@@ -3,6 +3,7 @@ import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
 import 'support_models.dart';
 import 'support_rich_html.dart';
+import 'dispatch_copy.dart';
 import 'dispatch_models.dart';
 import 'dispatch_panel.dart';
 
@@ -13,6 +14,7 @@ class SupportWorkspace extends StatefulWidget {
     this.onConnect,
     this.onOpenLink,
     this.dispatchRepository,
+    this.dispatchCopy = const DispatchPanelCopy(),
     this.mailboxReadOnly = false,
     this.userMailboxMode = false,
     this.confirmTrash = true,
@@ -21,6 +23,9 @@ class SupportWorkspace extends StatefulWidget {
   });
   final SupportRepository repository;
   final DispatchRepository? dispatchRepository;
+
+  /// Texts of the dispatch panel; the defaults are the project wording.
+  final DispatchPanelCopy dispatchCopy;
 
   /// Embedded session bridges allow reading and human dispatch only.
   final bool mailboxReadOnly;
@@ -926,6 +931,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             key: ValueKey(
               'dispatch/${_mailbox!.id}/${thread.id}/${thread.latestMessageId}',
             ),
+            copy: widget.dispatchCopy,
             repository: widget.dispatchRepository!,
             mailboxId: _mailbox!.id,
             threadId: thread.id,

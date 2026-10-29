@@ -20,7 +20,9 @@ class DispatchDestination {
   final bool available;
   final String? disabledReason;
 
-  /// Target kind: `project`, `content_draft` or `idea_pool`.
+  /// Target kind. Known kinds: `project`, `content_draft`, `content_in_progress`,
+  /// `content_idea`, `idea_pool`, `published_article` and `new_content`. Other
+  /// kinds render with a generic label and icon.
   final String kind;
 
   /// Human name of the owning project, used as the group header when present.
@@ -96,10 +98,14 @@ class DispatchReceipt {
     required this.state,
     this.intakeId,
     this.errorCode,
+    this.terminal = false,
   });
   final String destinationId, projectId;
   final DispatchReceiptState state;
   final String? intakeId, errorCode;
+
+  /// A definitive failure reported by the host. It no longer blocks recovery.
+  final bool terminal;
 }
 
 class ProjectDispatch {
@@ -110,8 +116,11 @@ class ProjectDispatch {
   });
   final String id, summary;
   final List<DispatchReceipt> receipts;
-  bool get unresolved =>
-      receipts.any((r) => r.state != DispatchReceiptState.accepted);
+  bool get unresolved => receipts.any(
+    (r) =>
+        r.state != DispatchReceiptState.accepted &&
+        !(r.state == DispatchReceiptState.failed && r.terminal),
+  );
 }
 
 abstract class DispatchRepository {

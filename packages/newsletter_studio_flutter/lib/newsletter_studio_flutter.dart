@@ -1,5 +1,6 @@
 library;
 
+export 'src/dispatch_copy.dart';
 export 'src/dispatch_models.dart';
 export 'src/dispatch_panel.dart';
 

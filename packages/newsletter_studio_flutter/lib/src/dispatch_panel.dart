@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dispatch_copy.dart';
 import 'dispatch_models.dart';
 import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
@@ -12,10 +13,12 @@ class DispatchPanel extends StatefulWidget {
     required this.threadId,
     required this.messageId,
     this.analyze,
+    this.copy = const DispatchPanelCopy(),
   });
   final DispatchRepository repository;
   final String mailboxId, threadId, messageId;
   final DispatchAnalysisCallback? analyze;
+  final DispatchPanelCopy copy;
   @override
   State<DispatchPanel> createState() => _DispatchPanelState();
 }
@@ -33,6 +36,14 @@ class _DispatchPanelState extends State<DispatchPanel> {
   DispatchAnalysis? _analysis;
   bool _busy = true;
   bool _previewing = false;
+  String _filter = '';
+  static const _filterMinDestinations = 12;
+  static const _contributionTypes = [
+    'newsletter_inspiration',
+    'thematic_source',
+    'potential_task',
+    'other',
+  ];
   // Retain only opaque identities while navigating within the current session.
   static final _pendingIds = Expando<Map<String, String>>();
   String get _threadKey => '${widget.mailboxId}/${widget.threadId}';
@@ -54,10 +65,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Autoriser le pré-triage IA'),
-        content: const Text(
-          'Le texte de cet email et le nom ou la description des projets candidats seront transmis au fournisseur IA configuré dans votre compte. '
-          'Ses règles de conservation s’appliquent. Les suggestions restent privées et aucun projet ne recevra de contribution avant votre confirmation.',
-        ),
+        content: Text(widget.copy.consentBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -119,7 +127,8 @@ class _DispatchPanelState extends State<DispatchPanel> {
   }
 
   void _applyCandidate(DispatchAnalysisCandidate candidate) {
-    if (_locked || _analysis == null) return;
+    final destination = _destinationById(candidate.destinationId);
+    if (_locked || _analysis == null || destination == null) return;
     setState(() {
       _summary.text = _analysis!.summary;
       _type = candidate.contributionType;
@@ -129,9 +138,6 @@ class _DispatchPanelState extends State<DispatchPanel> {
         ..._analysis!.risks,
         ...candidate.risks,
       }.take(10).join('\n');
-      final destination = _context!.destinations.firstWhere(
-        (d) => d.id == candidate.destinationId,
-      );
       if (destination.available &&
           (_selected.contains(destination.id) || _selected.length < 5)) {
         _selected.add(destination.id);
@@ -172,6 +178,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
           _context = c;
           _history = h;
           _ready = true;
+          if (!_filtering) _filter = '';
           if (_pending != null && h.any((d) => d.id == _pending!)) {
             _pending = null;
           }
@@ -211,10 +218,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
                 !confidence.isFinite ||
                 confidence < 0 ||
                 confidence > 1))) {
-      setState(
-        () => _error =
-            'Renseignez un résumé, de un à cinq projets et une confiance entre 0 et 1, ou laissez-la vide.',
-      );
+      setState(() => _error = widget.copy.validationError);
       return;
     }
     final p = DispatchProposal(
@@ -241,13 +245,11 @@ class _DispatchPanelState extends State<DispatchPanel> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Ce contenu sera conservé dans la file privée de chaque projet sélectionné.',
-              ),
+              Text(widget.copy.confirmIntro),
               for (final d in _context!.destinations.where(
                 (d) => p.destinationIds.contains(d.id),
               ))
-                Text('${d.label} · ${d.projectId}'),
+                Text('${d.label} · ${d.projectLabel ?? d.projectId}'),
               const Divider(),
               SelectableText(
                 'Résumé : ${p.summary}\nType : ${p.contributionType}\nJustification : ${p.justification}\nConfiance : ${p.confidence ?? "non renseignée"}\nRisques : ${p.risks.isEmpty ? "aucun renseigné" : p.risks.join("\n")}',
@@ -330,45 +332,70 @@ class _DispatchPanelState extends State<DispatchPanel> {
     recoveryId: id,
   );
 
-  String _receiptAdvice(DispatchReceipt receipt) => switch (receipt.errorCode) {
-    'forbidden' => 'Accès refusé. Vérifiez vos droits sur ce projet.',
-    'authorization_required' || 'connection_required' =>
-      'Reconnectez votre accès à ce projet avant de reprendre.',
-    'destination_unavailable' =>
-      'La file du projet est indisponible. Reprenez quand elle est accessible.',
-    'idempotency_conflict' =>
-      'Un conflit est détecté. Vérifiez cette entrée dans la file du projet.',
-    'invalid_payload' =>
-      'Le projet a refusé cet apport. Vérifiez ses contraintes de revue.',
-    'destination_changed' =>
-      'La connexion du projet a changé. Vérifiez l’accès avant de reprendre.',
-    'outcome_unknown' =>
-      'Le résultat reste à vérifier. Réconciliez les reçus avant toute reprise.',
-    _ =>
-      receipt.state == DispatchReceiptState.failed ||
-              receipt.state == DispatchReceiptState.unknown
-          ? 'Vérifiez les reçus avant de reprendre cette destination.'
-          : '',
-  };
+  String _receiptAdvice(DispatchReceipt receipt) {
+    final custom = widget.copy.receiptAdvice[receipt.errorCode];
+    if (receipt.terminal) return custom ?? widget.copy.terminalAdvice;
+    if (custom != null) return custom;
+    return switch (receipt.errorCode) {
+      'forbidden' => 'Accès refusé. Vérifiez vos droits sur ce projet.',
+      'authorization_required' || 'connection_required' =>
+        'Reconnectez votre accès à ce projet avant de reprendre.',
+      'destination_unavailable' =>
+        'La file du projet est indisponible. Reprenez quand elle est accessible.',
+      'idempotency_conflict' =>
+        'Un conflit est détecté. Vérifiez cette entrée dans la file du projet.',
+      'invalid_payload' =>
+        'Le projet a refusé cet apport. Vérifiez ses contraintes de revue.',
+      'destination_changed' =>
+        'La connexion du projet a changé. Vérifiez l’accès avant de reprendre.',
+      'outcome_unknown' =>
+        'Le résultat reste à vérifier. Réconciliez les reçus avant toute reprise.',
+      _ =>
+        receipt.state == DispatchReceiptState.failed ||
+                receipt.state == DispatchReceiptState.unknown
+            ? 'Vérifiez les reçus avant de reprendre cette destination.'
+            : '',
+    };
+  }
 
   /// Destinations grouped by project in first-seen order. Each group lists the
-  /// project-level target first, then its sub-targets (drafts, idea pool).
+  /// project-level target first, then new content, then the other sub-targets.
+  /// Long lists are filtered; a group without a visible target is dropped.
   List<_DestinationGroup> get _groupedDestinations {
     final byProject = <String, List<DispatchDestination>>{};
     for (final d in _context?.destinations ?? const <DispatchDestination>[]) {
       byProject.putIfAbsent(d.projectId, () => []).add(d);
     }
-    return [
-      for (final entry in byProject.entries)
+    final filter = _filtering ? _filter.trim().toLowerCase() : '';
+    final groups = <_DestinationGroup>[];
+    for (final entry in byProject.entries) {
+      final items = [
+        ...entry.value.where((d) => d.kind == 'project'),
+        ...entry.value.where((d) => d.kind == 'new_content'),
+        ...entry.value.where(
+          (d) => d.kind != 'project' && d.kind != 'new_content',
+        ),
+      ].where((d) => _matchesFilter(d, filter)).toList();
+      if (items.isEmpty) continue;
+      groups.add(
         _DestinationGroup(
           header: _groupHeader(entry.value, entry.key),
-          items: [
-            ...entry.value.where((d) => d.kind == 'project'),
-            ...entry.value.where((d) => d.kind != 'project'),
-          ],
+          items: items,
         ),
-    ];
+      );
+    }
+    return groups;
   }
+
+  bool get _filtering =>
+      (_context?.destinations.length ?? 0) > _filterMinDestinations;
+
+  /// A checked destination stays visible so the selection is never hidden.
+  bool _matchesFilter(DispatchDestination d, String filter) =>
+      filter.isEmpty ||
+      _selected.contains(d.id) ||
+      d.label.toLowerCase().contains(filter) ||
+      (d.projectLabel?.toLowerCase().contains(filter) ?? false);
 
   static String _groupHeader(List<DispatchDestination> items, String fallback) {
     for (final d in items) {
@@ -390,28 +417,62 @@ class _DispatchPanelState extends State<DispatchPanel> {
         : 'Liste mise à jour il y a $minutes min';
   }
 
-  static String _kindLabel(String kind) => switch (kind) {
-    'content_draft' => 'Ébauche ContentGlows',
-    'idea_pool' => 'Idea Pool',
-    'project' => 'Projet',
-    _ => 'Destination',
-  };
+  String _kindLabel(String kind) =>
+      widget.copy.kindLabels[kind] ??
+      DispatchPanelCopy.defaultKindLabels[kind] ??
+      'Destination';
+
+  String _contributionTypeLabel(String code) =>
+      widget.copy.contributionTypeLabels[code] ??
+      DispatchPanelCopy.defaultContributionTypeLabels[code] ??
+      code;
 
   static IconData _kindIcon(String kind) => switch (kind) {
     'content_draft' => Icons.edit_note_outlined,
+    'content_in_progress' => Icons.pending_actions_outlined,
+    'content_idea' => Icons.tips_and_updates_outlined,
     'idea_pool' => Icons.lightbulb_outline,
+    'published_article' => Icons.article_outlined,
+    'new_content' => Icons.add_circle_outline,
     'project' => Icons.folder_outlined,
     _ => Icons.inbox_outlined,
   };
 
   /// The host's `disabled_reason` wins when present; otherwise the subtitle
   /// names the unavailability or the kind so the cue is not colour-only.
-  static String _destinationSubtitle(DispatchDestination d) {
+  String _destinationSubtitle(DispatchDestination d) {
     final reason = d.disabledReason;
     if (reason != null && reason.isNotEmpty) return reason;
-    if (!d.available) return 'Connexion ou autorisation projet indisponible';
+    if (!d.available) return widget.copy.unavailableSubtitle;
     return d.kind == 'project' ? d.projectId : _kindLabel(d.kind);
   }
+
+  /// Null once a refreshed destination list no longer contains the id.
+  DispatchDestination? _destinationById(String id) {
+    for (final d in _context?.destinations ?? const <DispatchDestination>[]) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
+
+  /// Receipt title: the destination label while the current list still has it.
+  String _receiptTitle(DispatchReceipt r) {
+    for (final d in _context?.destinations ?? const <DispatchDestination>[]) {
+      if (d.id == r.destinationId) {
+        return '${d.label} · ${d.projectLabel ?? d.projectId}';
+      }
+    }
+    return '${r.projectId} · ${r.destinationId}';
+  }
+
+  String _receiptStateLabel(DispatchReceipt r) => switch (r.state) {
+    DispatchReceiptState.accepted => widget.copy.acceptedReceipt,
+    DispatchReceiptState.failed =>
+      r.terminal ? widget.copy.terminalReceipt : 'Échec',
+    DispatchReceiptState.unknown => 'Résultat inconnu',
+    DispatchReceiptState.intent => 'En attente',
+    DispatchReceiptState.inFlight => 'En cours',
+  };
 
   /// Sub-targets are indented under their project so the hierarchy reads at a glance.
   Widget _destinationTile(DispatchDestination d) => CheckboxListTile(
@@ -471,9 +532,8 @@ class _DispatchPanelState extends State<DispatchPanel> {
 
   Widget _candidateTile(DispatchAnalysisCandidate candidate) {
     final theme = Theme.of(context);
-    final label = _context!.destinations
-        .firstWhere((d) => d.id == candidate.destinationId)
-        .label;
+    final destination = _destinationById(candidate.destinationId);
+    if (destination == null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: EmailCockpitLayout.smallGap),
       child: Row(
@@ -483,7 +543,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: theme.textTheme.titleSmall),
+                Text(destination.label, style: theme.textTheme.titleSmall),
                 Text(
                   '${candidate.contributionType} · ${candidate.confidence}\n${candidate.justification}\n${candidate.risks.join("\n")}',
                   style: theme.textTheme.bodySmall,
@@ -519,15 +579,9 @@ class _DispatchPanelState extends State<DispatchPanel> {
               for (final r in d.receipts)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text('${r.projectId} · ${r.destinationId}'),
+                  title: Text(_receiptTitle(r)),
                   subtitle: SelectableText(
-                    '${switch (r.state) {
-                      DispatchReceiptState.accepted => "Reçu en revue privée",
-                      DispatchReceiptState.failed => "Échec",
-                      DispatchReceiptState.unknown => "Résultat inconnu",
-                      DispatchReceiptState.intent => "En attente",
-                      DispatchReceiptState.inFlight => "En cours",
-                    }}${r.intakeId == null ? "" : " · ${r.intakeId}"}\n${_receiptAdvice(r)}',
+                    '${_receiptStateLabel(r)}${r.intakeId == null ? "" : " · ${r.intakeId}"}\n${_receiptAdvice(r)}',
                   ),
                 ),
               if (d.unresolved)
@@ -570,7 +624,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
               runSpacing: EmailCockpitLayout.smallGap,
               children: [
                 Text(
-                  'Dispatch vers les projets',
+                  widget.copy.title,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -582,10 +636,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
                 ),
               ],
             ),
-            Text(
-              'Saisissez uniquement les éléments à transmettre et à conserver dans les files privées.',
-              style: muted,
-            ),
+            Text(widget.copy.intro, style: muted),
             if (generatedAt != null)
               Text(_freshnessLabel(generatedAt), style: muted),
             const SizedBox(height: EmailCockpitLayout.gap),
@@ -643,20 +694,12 @@ class _DispatchPanelState extends State<DispatchPanel> {
                     decoration: const InputDecoration(
                       labelText: 'Type d’apport',
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'newsletter_inspiration',
-                        child: Text('Inspiration de newsletter'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'thematic_source',
-                        child: Text('Source thématique'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'potential_task',
-                        child: Text('Tâche potentielle'),
-                      ),
-                      DropdownMenuItem(value: 'other', child: Text('Autre')),
+                    items: [
+                      for (final code in _contributionTypes)
+                        DropdownMenuItem(
+                          value: code,
+                          child: Text(_contributionTypeLabel(code)),
+                        ),
                     ],
                     onChanged: _locked
                         ? null
@@ -711,6 +754,17 @@ class _DispatchPanelState extends State<DispatchPanel> {
               ],
             ),
             const SizedBox(height: EmailCockpitLayout.smallGap),
+            if (_filtering) ...[
+              TextField(
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: widget.copy.filterHint,
+                  prefixIcon: const Icon(Icons.search),
+                ),
+                onChanged: (v) => setState(() => _filter = v),
+              ),
+              const SizedBox(height: EmailCockpitLayout.smallGap),
+            ],
             for (final group in _groupedDestinations) ...[
               Semantics(
                 header: true,
@@ -732,10 +786,10 @@ class _DispatchPanelState extends State<DispatchPanel> {
               ),
             ],
             if (_context?.destinations.isEmpty == true)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(top: EmailCockpitLayout.smallGap),
                 child: EmailNotice(
-                  'Aucune destination projet configurée.',
+                  widget.copy.emptyDestinations,
                   icon: Icons.folder_off_outlined,
                 ),
               ),
