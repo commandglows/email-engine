@@ -136,6 +136,8 @@ text, disabled creation, serialized saves, keyboard navigation and send review.
 receives `EmailSection.sources`, `support` or `diffusion`. It keeps child state
 through responsive reparenting; it does not fetch or authenticate providers.
 `SupportWorkspace(repository:, onConnect:)` owns the conversation journey.
+`advanceAfterAction` (`none`, `next`, `previous`) opens a neighbouring
+conversation after a trash or archive; `none`, the default, returns to the list.
 Hosts implement `SupportRepository`; never pass OAuth tokens to presentation.
 Unknown reply outcomes block repeated sends; successful submission is not delivery.
 Support models also carry optional sanitized HTML, attachment metadata, Cc and

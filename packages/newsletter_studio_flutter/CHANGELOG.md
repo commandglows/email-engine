@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Open the next or previous conversation after a trash or archive through
+  `SupportWorkspace.advanceAfterAction`; the default still returns to the list.
 - Show support message layouts (tables, colours, spacing) and HTTPS images in a
   shared rich reader with a per-message plain-text toggle; the app reuses it.
 - Redesign the service-client mailbox: unread-weighted conversation rows with

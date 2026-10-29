@@ -7,6 +7,10 @@ import 'dispatch_copy.dart';
 import 'dispatch_models.dart';
 import 'dispatch_panel.dart';
 
+/// Conversation opened after the current one is trashed or archived.
+/// [none] returns to the list.
+enum SupportThreadAdvance { none, next, previous }
+
 class SupportWorkspace extends StatefulWidget {
   const SupportWorkspace({
     super.key,
@@ -18,6 +22,7 @@ class SupportWorkspace extends StatefulWidget {
     this.mailboxReadOnly = false,
     this.userMailboxMode = false,
     this.confirmTrash = true,
+    this.advanceAfterAction = SupportThreadAdvance.none,
     this.oauthReturnOrigin,
     this.onAnalyzeThread,
   });
@@ -33,6 +38,10 @@ class SupportWorkspace extends StatefulWidget {
 
   /// When false, deleting a conversation moves it to the Gmail trash at once.
   final bool confirmTrash;
+
+  /// Opens the next or previous conversation of the filtered list after a
+  /// trash or archive, instead of returning to the list.
+  final SupportThreadAdvance advanceAfterAction;
   final String? oauthReturnOrigin;
   final Future<DispatchAnalysis> Function(
     SupportThread thread,
@@ -253,6 +262,8 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             ),
           );
     if (confirmed != true || _mailbox == null) return;
+    final position = _visibleItems.indexWhere((item) => item.id == thread.id);
+    var trashed = false;
     await _operation(() async {
       await widget.repository.trashThread(
         _mailbox!.id,
@@ -260,13 +271,69 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
         expectedMessageId: thread.latestMessageId,
       );
       if (!mounted) return;
+      trashed = true;
       setState(() {
         _items.removeWhere((item) => item.id == thread.id);
         _thread = null;
-        _notice = 'Conversation déplacée dans la corbeille Gmail.';
       });
     });
+    if (!trashed) return;
+    await _openNeighbour(position, removed: true);
+    if (mounted) {
+      setState(() {
+        _notice = 'Conversation déplacée dans la corbeille Gmail.';
+      });
+    }
   }
+
+  Future<void> _archiveThread(SupportThread thread) async {
+    final position = _visibleItems.indexWhere((item) => item.id == thread.id);
+    await _setGmailMetadata(archived: true);
+    if (_thread?.id != thread.id || _thread?.isArchived != true) return;
+    await _openNeighbour(position, removed: false);
+  }
+
+  /// Opens the neighbour of a conversation just trashed or archived. [position]
+  /// is its index in the filtered list before the action. A trashed one has
+  /// left that list; an archived one stays in it.
+  Future<void> _openNeighbour(int position, {required bool removed}) async {
+    final advance = widget.advanceAfterAction;
+    if (advance == SupportThreadAdvance.none || position < 0) return;
+    final nextIndex = removed ? position : position + 1;
+    var visible = _visibleItems;
+    if (advance == SupportThreadAdvance.next &&
+        nextIndex >= visible.length &&
+        _cursor != null) {
+      await _operation(_loadMore);
+      visible = _visibleItems;
+    }
+    final index = advance == SupportThreadAdvance.next
+        ? nextIndex
+        : position - 1;
+    if (!mounted || index < 0 || index >= visible.length) return;
+    await _open(visible[index]);
+  }
+
+  Future<void> _loadMore() async {
+    final page = await widget.repository.threads(
+      _mailbox!.id,
+      cursor: _cursor,
+    );
+    if (!mounted) return;
+    setState(() {
+      final ids = _items.map((t) => t.id).toSet();
+      _items.addAll(page.items.where((t) => ids.add(t.id)));
+      _cursor = page.nextCursor;
+    });
+  }
+
+  List<SupportThreadSummary> get _visibleItems => _items
+      .where(
+        (t) => '${t.subject} ${t.from} ${t.snippet}'.toLowerCase().contains(
+          _filter.toLowerCase(),
+        ),
+      )
+      .toList();
 
   Widget _observabilityPanel() {
     final data = _observability;
@@ -765,13 +832,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   );
 
   Widget _list() {
-    final items = _items
-        .where(
-          (t) => '${t.subject} ${t.from} ${t.snippet}'.toLowerCase().contains(
-            _filter.toLowerCase(),
-          ),
-        )
-        .toList();
+    final items = _visibleItems;
     return Column(
       children: [
         Padding(
@@ -803,23 +864,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                 Padding(
                   padding: const EdgeInsets.all(EmailCockpitLayout.gap),
                   child: OutlinedButton(
-                    onPressed: _busy
-                        ? null
-                        : () => _operation(() async {
-                            final page = await widget.repository.threads(
-                              _mailbox!.id,
-                              cursor: _cursor,
-                            );
-                            if (mounted) {
-                              setState(() {
-                                final ids = _items.map((t) => t.id).toSet();
-                                _items.addAll(
-                                  page.items.where((t) => ids.add(t.id)),
-                                );
-                                _cursor = page.nextCursor;
-                              });
-                            }
-                          }),
+                    onPressed: _busy ? null : () => _operation(_loadMore),
                     child: const Text('Charger la suite'),
                   ),
                 ),
@@ -1110,7 +1155,9 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                           _mailbox?.canModify != true ||
                           thread.isArchived == null
                       ? null
-                      : () => _setGmailMetadata(archived: !thread.isArchived!),
+                      : () => thread.isArchived!
+                      ? _setGmailMetadata(archived: false)
+                      : _archiveThread(thread),
                   icon: Icon(
                     thread.isArchived == true
                         ? Icons.unarchive_outlined
