@@ -13,11 +13,16 @@ class DispatchPanel extends StatefulWidget {
     required this.threadId,
     required this.messageId,
     this.analyze,
+    this.initialAnalysis,
     this.copy = const DispatchPanelCopy(),
   });
   final DispatchRepository repository;
   final String mailboxId, threadId, messageId;
   final DispatchAnalysisCallback? analyze;
+
+  /// A suggestion prepared by automatic triage for [messageId], shown without
+  /// asking; ignored when it was made for another message.
+  final DispatchAnalysis? initialAnalysis;
   final DispatchPanelCopy copy;
   @override
   State<DispatchPanel> createState() => _DispatchPanelState();
@@ -126,6 +131,28 @@ class _DispatchPanelState extends State<DispatchPanel> {
     }
   }
 
+  /// An automatic analysis made earlier for this exact message, limited to the
+  /// destinations still listed. It is only a suggestion, like a manual one.
+  DispatchAnalysis? _initialAnalysis(DispatchContext context) {
+    final initial = widget.initialAnalysis;
+    if (initial == null || initial.sourceRevision != widget.messageId) {
+      return null;
+    }
+    final allowed = context.destinations.map((d) => d.id).toSet();
+    return DispatchAnalysis(
+      sourceRevision: initial.sourceRevision,
+      summary: initial.summary,
+      candidates: initial.candidates
+          .where((c) => allowed.contains(c.destinationId))
+          .take(5)
+          .toList(),
+      risks: initial.risks.take(10).toList(),
+      provider: initial.provider,
+      model: initial.model,
+      notices: initial.notices,
+    );
+  }
+
   void _applyCandidate(DispatchAnalysisCandidate candidate) {
     final destination = _destinationById(candidate.destinationId);
     if (_locked || _analysis == null || destination == null) return;
@@ -154,6 +181,19 @@ class _DispatchPanelState extends State<DispatchPanel> {
   }
 
   @override
+  void didUpdateWidget(DispatchPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Automatic triage may finish while this email is already open.
+    final loaded = _context;
+    if (_analysis == null &&
+        loaded != null &&
+        widget.initialAnalysis != oldWidget.initialAnalysis) {
+      final initial = _initialAnalysis(loaded);
+      if (initial != null) setState(() => _analysis = initial);
+    }
+  }
+
+  @override
   void dispose() {
     for (final c in [_summary, _justification, _risks, _confidence]) {
       c.dispose();
@@ -178,6 +218,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
           _context = c;
           _history = h;
           _ready = true;
+          _analysis ??= _initialAnalysis(c);
           if (!_filtering) _filter = '';
           if (_pending != null && h.any((d) => d.id == _pending!)) {
             _pending = null;
@@ -520,6 +561,23 @@ class _DispatchPanelState extends State<DispatchPanel> {
               ),
               const SizedBox(height: EmailCockpitLayout.smallGap),
               SelectableText(analysis.summary),
+              for (final notice in analysis.notices)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    top: EmailCockpitLayout.smallGap,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.bolt_outlined,
+                        size: 16,
+                        color: scheme.primary,
+                      ),
+                      const SizedBox(width: EmailCockpitLayout.smallGap),
+                      Expanded(child: Text(notice)),
+                    ],
+                  ),
+                ),
               for (final risk in analysis.risks) Text('Risque suggéré : $risk'),
               for (final candidate in analysis.candidates)
                 _candidateTile(candidate),

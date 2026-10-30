@@ -11,15 +11,24 @@ const emailTriageSchemaVersion = 2;
 
 /// Body of a v2 triage request. [destinations] are sent as untrusted labels;
 /// the host re-checks ownership of every [DispatchDestination.projectId].
+///
+/// [subject] and [sender] help the host tell automatic technical alerts
+/// (error trackers, CI, dependencies, monitoring) from everything else.
 Map<String, dynamic> emailTriageRequest({
   required String sourceRevision,
   required String text,
   required List<DispatchDestination> destinations,
+  String? subject,
+  String? sender,
 }) => {
   'schema_version': emailTriageSchemaVersion,
   'consent_external_analysis': true,
   'source_revision': sourceRevision,
   'text': text,
+  if (subject != null && subject.trim().isNotEmpty)
+    'subject': _clip(subject.trim(), 500),
+  if (sender != null && sender.trim().isNotEmpty)
+    'sender': _clip(sender.trim(), 320),
   'destinations': [
     for (final destination in destinations)
       {
@@ -86,6 +95,23 @@ DispatchAnalysis parseEmailTriageResponse(
     );
   }
   candidates.sort((a, b) => b.confidence.compareTo(a.confidence));
+  // Optional: actions the host already took without arbitration (a technical
+  // alert filed as a project signal). Malformed entries are ignored.
+  final notices = <String>[];
+  final automatic = result['automatic_actions'];
+  if (automatic is List) {
+    for (final action in automatic) {
+      if (action is Map &&
+          action['kind'] == 'signal' &&
+          action['label'] is String) {
+        notices.add(
+          action['created'] == false
+              ? 'Alerte technique déjà transmise à ${action['label']}.'
+              : 'Alerte technique transmise à ${action['label']} (signal).',
+        );
+      }
+    }
+  }
   return DispatchAnalysis(
     sourceRevision: sourceRevision,
     summary: result['summary'] as String,
@@ -93,5 +119,9 @@ DispatchAnalysis parseEmailTriageResponse(
     risks: const [],
     provider: result['provider'] as String,
     model: result['model'] as String,
+    notices: notices,
   );
 }
+
+String _clip(String value, int max) =>
+    value.length <= max ? value : value.substring(0, max);

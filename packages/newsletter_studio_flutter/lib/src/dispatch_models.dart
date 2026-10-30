@@ -166,10 +166,15 @@ class DispatchAnalysis {
     required this.risks,
     required this.provider,
     required this.model,
+    this.notices = const [],
   });
   final String sourceRevision, summary, provider, model;
   final List<DispatchAnalysisCandidate> candidates;
   final List<String> risks;
+
+  /// What the host already did on its own for this email, such as a technical
+  /// alert filed as a project signal. Shown as-is; nothing is left to confirm.
+  final List<String> notices;
 }
 
 typedef DispatchAnalysisCallback =

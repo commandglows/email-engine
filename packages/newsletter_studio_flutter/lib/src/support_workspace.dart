@@ -25,8 +25,13 @@ class SupportWorkspace extends StatefulWidget {
     this.advanceAfterAction = SupportThreadAdvance.none,
     this.oauthReturnOrigin,
     this.onAnalyzeThread,
+    this.analysisFor,
     this.toolbarSlot,
   });
+
+  /// Automatic triage results by latest message id (see `EmailAutoTriage` in
+  /// email_mailbox_client): shown in the dispatch panel without asking.
+  final DispatchAnalysis? Function(String latestMessageId)? analysisFor;
   final SupportRepository repository;
 
   /// When set, the mailbox toolbar is published here for the host to place
@@ -1042,6 +1047,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             mailboxId: _mailbox!.id,
             threadId: thread.id,
             messageId: thread.latestMessageId,
+            initialAnalysis: widget.analysisFor?.call(thread.latestMessageId),
             analyze: widget.onAnalyzeThread == null
                 ? null
                 : (destinations) => widget.onAnalyzeThread!(
