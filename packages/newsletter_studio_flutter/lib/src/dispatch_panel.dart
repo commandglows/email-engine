@@ -14,8 +14,17 @@ class DispatchPanel extends StatefulWidget {
     required this.messageId,
     this.analyze,
     this.initialAnalysis,
+    this.analysisSetupRequired = false,
+    this.onAnalysisSetup,
     this.copy = const DispatchPanelCopy(),
   });
+
+  /// The host already knows the analysis needs setup (automatic triage hit a
+  /// missing key): the panel explains it instead of a generic failure.
+  final bool analysisSetupRequired;
+
+  /// Opens the host's settings where the analysis key is added.
+  final VoidCallback? onAnalysisSetup;
   final DispatchRepository repository;
   final String mailboxId, threadId, messageId;
   final DispatchAnalysisCallback? analyze;
@@ -39,6 +48,8 @@ class _DispatchPanelState extends State<DispatchPanel> {
   String _type = 'other';
   String? _error;
   DispatchAnalysis? _analysis;
+  // The host said the analysis provider needs setup (no API key).
+  bool _setupRequired = false;
   bool _busy = true;
   bool _previewing = false;
   String _filter = '';
@@ -119,7 +130,12 @@ class _DispatchPanelState extends State<DispatchPanel> {
         throw const DispatchException(code: 'invalid_analysis');
       }
       setState(() => _analysis = analysis);
-    } catch (_) {
+    } catch (error) {
+      if (error is DispatchException &&
+          error.code == 'analysis_setup_required') {
+        if (mounted) setState(() => _setupRequired = true);
+        return;
+      }
       if (mounted) {
         setState(
           () => _error =
@@ -714,7 +730,19 @@ class _DispatchPanelState extends State<DispatchPanel> {
               const SizedBox(height: EmailCockpitLayout.smallGap),
               const LinearProgressIndicator(),
             ],
-            if (_error != null) ...[
+            if (_setupRequired || widget.analysisSetupRequired) ...[
+              const SizedBox(height: EmailCockpitLayout.smallGap),
+              EmailNotice(widget.copy.analysisSetupRequired),
+              if (widget.onAnalysisSetup != null)
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton.icon(
+                    onPressed: widget.onAnalysisSetup,
+                    icon: const Icon(Icons.key_outlined, size: 18),
+                    label: Text(widget.copy.analysisSetupAction),
+                  ),
+                ),
+            ] else if (_error != null) ...[
               const SizedBox(height: EmailCockpitLayout.smallGap),
               EmailNotice(_error!, error: true),
             ],

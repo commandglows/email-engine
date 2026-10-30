@@ -75,6 +75,11 @@ class EmailAutoTriage extends ChangeNotifier {
   /// Whether a run is in progress.
   bool get running => _running != null;
 
+  /// The host answered `analysis_setup_required` (no analysis key): runs stop
+  /// at the first such answer until an analysis succeeds again.
+  bool get setupRequired => _setupRequired;
+  bool _setupRequired = false;
+
   /// Runs once; joins the run in progress instead of starting a second one.
   Future<EmailAutoTriageReport> run() {
     final current = _running;
@@ -131,6 +136,25 @@ class EmailAutoTriage extends ChangeNotifier {
           if (revision != null) _seenRevision[key] = revision;
           analyzed++;
           if (analysis.notices.isNotEmpty) automatic++;
+          if (_setupRequired) {
+            _setupRequired = false;
+            if (!_disposed) notifyListeners();
+          }
+        } on DispatchException catch (error) {
+          failed++;
+          if (error.code == 'analysis_setup_required') {
+            // Every other thread would fail the same way: stop and tell the host.
+            if (!_setupRequired) {
+              _setupRequired = true;
+              if (!_disposed) notifyListeners();
+            }
+            return EmailAutoTriageReport(
+              analyzed: analyzed,
+              skipped: skipped,
+              failed: failed,
+              automatic: automatic,
+            );
+          }
         } catch (_) {
           failed++;
         }

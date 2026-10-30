@@ -26,8 +26,17 @@ class SupportWorkspace extends StatefulWidget {
     this.oauthReturnOrigin,
     this.onAnalyzeThread,
     this.analysisFor,
+    this.analysisSetupRequired = false,
+    this.onAnalysisSetup,
     this.toolbarSlot,
   });
+
+  /// The analysis provider needs setup (no API key): the dispatch panel says so
+  /// and offers [onAnalysisSetup] instead of a generic failure.
+  final bool analysisSetupRequired;
+
+  /// Opens the host's settings where the analysis key is added.
+  final VoidCallback? onAnalysisSetup;
 
   /// Automatic triage results by latest message id (see `EmailAutoTriage` in
   /// email_mailbox_client): shown in the dispatch panel without asking.
@@ -1048,6 +1057,8 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             threadId: thread.id,
             messageId: thread.latestMessageId,
             initialAnalysis: widget.analysisFor?.call(thread.latestMessageId),
+            analysisSetupRequired: widget.analysisSetupRequired,
+            onAnalysisSetup: widget.onAnalysisSetup,
             analyze: widget.onAnalyzeThread == null
                 ? null
                 : (destinations) => widget.onAnalyzeThread!(

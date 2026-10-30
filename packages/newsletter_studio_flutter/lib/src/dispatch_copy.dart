@@ -19,6 +19,9 @@ class DispatchPanelCopy {
     this.terminalReceipt = 'Échec définitif',
     this.terminalAdvice = 'Cette destination ne peut plus recevoir cet apport.',
     this.filterHint = 'Filtrer les destinations',
+    this.analysisSetupRequired =
+        'Le pré-tri IA a besoin de votre clé OpenRouter. Ajoutez-la une fois dans vos réglages : le tri reprendra tout seul.',
+    this.analysisSetupAction = 'Ajouter ma clé OpenRouter',
     this.kindLabels = defaultKindLabels,
     this.contributionTypeLabels = defaultContributionTypeLabels,
     this.receiptAdvice = const {},
@@ -51,7 +54,9 @@ class DispatchPanelCopy {
       acceptedReceipt,
       terminalReceipt,
       terminalAdvice,
-      filterHint;
+      filterHint,
+      analysisSetupRequired,
+      analysisSetupAction;
 
   /// Keyed by destination `kind`.
   final Map<String, String> kindLabels;
