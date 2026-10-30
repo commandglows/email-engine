@@ -943,6 +943,28 @@ class _SourceSidebarState extends State<SourceSidebar> {
     _restoreWorkspaceFocus();
   }
 
+  void _showZoomLimitReached(BuildContext context, ZoomLimit limit) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    final isFrench =
+        Localizations.maybeLocaleOf(context)?.languageCode == 'fr';
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            limit == ZoomLimit.maximum
+                ? (isFrench
+                      ? 'Zoom maximal atteint.'
+                      : 'Maximum zoom reached.')
+                : (isFrench
+                      ? 'Zoom minimal atteint.'
+                      : 'Minimum zoom reached.'),
+          ),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Shortcuts(
@@ -1070,6 +1092,8 @@ class _SourceSidebarState extends State<SourceSidebar> {
           maximumZoom: widget.style.maximumZoom,
           zoomStep: widget.style.zoomStep,
           resetShortcuts: widget.shortcuts.resetZoom,
+          onZoomLimitReached: (limit) =>
+              _showZoomLimitReached(context, limit),
           child: Focus(
             focusNode: _workspaceFocus,
             autofocus: true,

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show a localized in-app message when the shared workspace zoom reaches its
+  configured minimum or maximum.
 - Added complete keyboard reading controls, optional account switching and chooser,
   host-owned summaries, and unique multi-project distribution.
 - Made keyboard help capability-aware and restored a valid workspace focus after

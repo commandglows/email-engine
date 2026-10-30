@@ -122,7 +122,9 @@ applications can adopt the same tested viewport independently.
 
 Hosts can configure `minimumZoom`, `maximumZoom`, `initialZoom`, and `zoomStep`
 through `SourceSidebarStyle`. They can replace or disable the reset shortcut
-through `SourceSidebarShortcuts.resetZoom`.
+through `SourceSidebarShortcuts.resetZoom`. A localized in-app message appears
+when the configured minimum or maximum is reached.
+
 # Unified email groups
 
 Hosts can reuse the existing dense rows and reader across providers using
