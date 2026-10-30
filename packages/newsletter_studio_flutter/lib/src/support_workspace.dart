@@ -1086,8 +1086,10 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                       constraints.maxHeight *
                       EmailCockpitLayout.dispatchDockMaxFraction,
                 ),
+                // A soft lift tells the dock floats above the scrolling email.
                 child: Material(
                   color: scheme.surfaceContainerLow,
+                  elevation: 3,
                   shape: Border(top: BorderSide(color: scheme.outlineVariant)),
                   child: dispatchPanel(docked: true),
                 ),

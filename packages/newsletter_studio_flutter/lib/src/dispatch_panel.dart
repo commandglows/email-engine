@@ -542,28 +542,34 @@ class _DispatchPanelState extends State<DispatchPanel> {
     DispatchReceiptState.inFlight => 'En cours',
   };
 
-  /// Sub-targets are indented under their project so the hierarchy reads at a glance.
-  Widget _destinationTile(DispatchDestination d) => CheckboxListTile(
-    dense: true,
-    visualDensity: VisualDensity.compact,
-    contentPadding: EdgeInsetsDirectional.only(
-      start: d.kind == 'project' ? EmailCockpitLayout.gap : 40.0,
-      end: EmailCockpitLayout.gap,
-    ),
-    value: _selected.contains(d.id),
-    secondary: Icon(_kindIcon(d.kind)),
-    title: Text(d.label),
-    subtitle: Text(_destinationSubtitle(d)),
-    onChanged: _locked || !d.available
-        ? null
-        : (v) => setState(() {
-            if (v == true) {
-              _selected.add(d.id);
-            } else {
-              _selected.remove(d.id);
-            }
-          }),
-  );
+  /// Sub-targets listed under a project-level target are indented so the
+  /// hierarchy reads at a glance; a group without one stays flush.
+  Widget _destinationTile(DispatchDestination d, {required bool nested}) =>
+      CheckboxListTile(
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        contentPadding: EdgeInsetsDirectional.only(
+          start: nested ? 36.0 : EmailCockpitLayout.mediumGap,
+          end: EmailCockpitLayout.smallGap,
+        ),
+        value: _selected.contains(d.id),
+        secondary: Icon(_kindIcon(d.kind), size: 20),
+        title: Text(d.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          _destinationSubtitle(d),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        onChanged: _locked || !d.available
+            ? null
+            : (v) => setState(() {
+                if (v == true) {
+                  _selected.add(d.id);
+                } else {
+                  _selected.remove(d.id);
+                }
+              }),
+      );
 
   /// Pre-triage suggestions: a tonal block, one row per candidate destination.
   Widget _analysisBlock(DispatchAnalysis analysis) {
@@ -707,23 +713,30 @@ class _DispatchPanelState extends State<DispatchPanel> {
   static InputDecoration _dense(String label, {String? hint}) =>
       InputDecoration(isDense: true, labelText: label, hintText: hint);
 
-  /// Fixed header: title, list freshness, refresh and, when the host can fold
-  /// the panel, the fold toggle. A folded header opens the panel on tap.
+  /// Fixed one-line header: title, guidance on hover, refresh and, when the
+  /// host can fold the panel, the fold toggle. The whole bar toggles. Folded,
+  /// it still says whether a suggestion or a selection is waiting.
   Widget _header(ThemeData theme, TextStyle? muted) {
-    final generatedAt = _context?.generatedAt;
     final collapsed = widget.collapsed;
+    final status = !collapsed
+        ? null
+        : _analysis != null
+        ? 'Suggestion IA prête'
+        : _selected.isNotEmpty
+        ? '${_selected.length} sur 5 au maximum'
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         InkWell(
-          onTap: collapsed ? widget.onToggleCollapsed : null,
+          onTap: widget.onToggleCollapsed,
           child: Padding(
             padding: const EdgeInsetsDirectional.fromSTEB(
               EmailCockpitLayout.gap,
+              4,
               EmailCockpitLayout.smallGap,
-              EmailCockpitLayout.smallGap,
-              EmailCockpitLayout.smallGap,
+              4,
             ),
             child: Row(
               children: [
@@ -734,30 +747,40 @@ class _DispatchPanelState extends State<DispatchPanel> {
                 ),
                 const SizedBox(width: EmailCockpitLayout.smallGap),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                  child: Row(
                     children: [
-                      Text(
-                        widget.copy.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (collapsed && _selected.isNotEmpty)
-                        Text(
-                          '${_selected.length} sur 5 au maximum',
-                          style: muted,
-                        )
-                      else if (generatedAt != null)
-                        Text(
-                          _freshnessLabel(generatedAt),
+                      Flexible(
+                        child: Text(
+                          widget.copy.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: muted,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
+                      ),
+                      const SizedBox(width: 6),
+                      Tooltip(
+                        message: widget.copy.intro,
+                        child: Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      if (status != null) ...[
+                        const SizedBox(width: EmailCockpitLayout.mediumGap),
+                        Flexible(
+                          child: Text(
+                            status,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: muted?.copyWith(
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -795,16 +818,60 @@ class _DispatchPanelState extends State<DispatchPanel> {
     );
   }
 
+  /// One quiet line for the AI state that is not an action: unavailable, or
+  /// waiting for the provider key (with the host's shortcut to add it).
+  Widget _aiLine(
+    ThemeData theme,
+    TextStyle? muted, {
+    required IconData icon,
+    required String text,
+    Widget? action,
+  }) => Row(
+    children: [
+      Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+      const SizedBox(width: EmailCockpitLayout.smallGap),
+      Expanded(
+        child: Text(
+          text,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: muted,
+        ),
+      ),
+      if (action != null) ...[
+        const SizedBox(width: EmailCockpitLayout.smallGap),
+        action,
+      ],
+    ],
+  );
+
   Widget _body(ThemeData theme, TextStyle? muted) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     mainAxisSize: MainAxisSize.min,
     children: [
-      Text(widget.copy.intro, style: muted),
-      const SizedBox(height: EmailCockpitLayout.mediumGap),
       if (widget.analyze == null)
-        const EmailNotice(
-          'Analyse IA indisponible. Préparez une proposition manuelle à valider.',
+        _aiLine(
+          theme,
+          muted,
           icon: Icons.auto_awesome_outlined,
+          text:
+              'Analyse IA indisponible. Préparez une proposition manuelle à valider.',
+        )
+      else if (_setupRequired || widget.analysisSetupRequired)
+        _aiLine(
+          theme,
+          muted,
+          icon: Icons.key_outlined,
+          text: widget.copy.analysisSetupRequired,
+          action: widget.onAnalysisSetup == null
+              ? null
+              : TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: widget.onAnalysisSetup,
+                  child: Text(widget.copy.analysisSetupAction),
+                ),
         )
       else
         Align(
@@ -817,23 +884,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
           ),
         ),
       if (_analysis case final analysis?) _analysisBlock(analysis),
-      if (_setupRequired || widget.analysisSetupRequired) ...[
-        const SizedBox(height: EmailCockpitLayout.smallGap),
-        EmailNotice(
-          widget.copy.analysisSetupRequired,
-          icon: Icons.key_outlined,
-          action: widget.onAnalysisSetup == null
-              ? null
-              : TextButton(
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: widget.onAnalysisSetup,
-                  child: Text(widget.copy.analysisSetupAction),
-                ),
-        ),
-      ] else if (_error != null) ...[
+      if (_error != null) ...[
         const SizedBox(height: EmailCockpitLayout.smallGap),
         EmailNotice(_error!, error: true),
       ],
@@ -845,7 +896,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
         ),
       ],
       for (final d in _history) _historyEntry(d),
-      const SizedBox(height: EmailCockpitLayout.gap),
+      const SizedBox(height: EmailCockpitLayout.mediumGap),
       TextField(
         controller: _summary,
         enabled: !_locked,
@@ -924,8 +975,16 @@ class _DispatchPanelState extends State<DispatchPanel> {
           decoration: _dense('Risques (un par ligne, maximum 10)'),
         ),
       ],
-      const SizedBox(height: EmailCockpitLayout.gap),
-      Text('Destinations', style: theme.textTheme.titleSmall),
+      const SizedBox(height: EmailCockpitLayout.mediumGap),
+      Row(
+        children: [
+          Expanded(
+            child: Text('Destinations', style: theme.textTheme.titleSmall),
+          ),
+          if (_context?.generatedAt case final generatedAt?)
+            Text(_freshnessLabel(generatedAt), style: muted),
+        ],
+      ),
       if (_filtering) ...[
         const SizedBox(height: EmailCockpitLayout.smallGap),
         TextField(
@@ -953,7 +1012,15 @@ class _DispatchPanelState extends State<DispatchPanel> {
           clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [for (final d in group.items) _destinationTile(d)],
+            children: [
+              for (final d in group.items)
+                _destinationTile(
+                  d,
+                  nested:
+                      d.kind != 'project' &&
+                      group.items.any((i) => i.kind == 'project'),
+                ),
+            ],
           ),
         ),
       ],
@@ -980,13 +1047,18 @@ class _DispatchPanelState extends State<DispatchPanel> {
         vertical: EmailCockpitLayout.smallGap,
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(
-            child: Text('${_selected.length} sur 5 au maximum', style: muted),
+          Flexible(
+            child: Text(
+              '${_selected.length} sur 5 au maximum',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: muted,
+            ),
           ),
           const SizedBox(width: EmailCockpitLayout.smallGap),
           Flexible(
-            flex: 3,
             child: FilledButton.icon(
               style: FilledButton.styleFrom(
                 visualDensity: VisualDensity.compact,

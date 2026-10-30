@@ -50,20 +50,12 @@ class EmailStatePill extends StatelessWidget {
 }
 
 /// Inline message. Errors use the error tones; everything else stays neutral.
-/// An optional [action] sits under the text, inside the same box.
 class EmailNotice extends StatelessWidget {
-  const EmailNotice(
-    this.text, {
-    super.key,
-    this.error = false,
-    this.icon,
-    this.action,
-  });
+  const EmailNotice(this.text, {super.key, this.error = false, this.icon});
 
   final String text;
   final bool error;
   final IconData? icon;
-  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -91,18 +83,11 @@ class EmailNotice extends StatelessWidget {
               ),
               const SizedBox(width: EmailCockpitLayout.smallGap),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      text,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: foreground,
-                      ),
-                    ),
-                    ?action,
-                  ],
+                child: Text(
+                  text,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: foreground,
+                  ),
                 ),
               ),
             ],

@@ -20,7 +20,7 @@ abstract final class EmailCockpitLayout {
   static const dispatchBreakpoint = 1040.0;
 
   /// Share of the detail pane the docked dispatch panel may take at most.
-  static const dispatchDockMaxFraction = 0.55;
+  static const dispatchDockMaxFraction = 0.45;
   static const tileRadius = 12.0;
   static const pillRadius = 999.0;
   static const navigationRadius = 14.0;
