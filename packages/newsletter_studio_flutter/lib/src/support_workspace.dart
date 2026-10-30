@@ -80,6 +80,8 @@ class SupportWorkspace extends StatefulWidget {
 class _SupportWorkspaceState extends State<SupportWorkspace> {
   SupportContext? _context;
   SupportMailbox? _mailbox;
+  // Folded state of the docked dispatch panel, kept from one email to the next.
+  bool _dispatchCollapsed = false;
   SupportThread? _thread;
   final List<SupportThreadSummary> _items = [];
   final Map<String, String> _drafts = {};
@@ -1039,50 +1041,60 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   }
 
   /// Detail pane. The email header stays fixed and only the messages scroll.
-  /// Wide layouts keep the dispatch panel in a side column so the message and
-  /// the proposal are visible together; narrow ones stack them.
+  /// The dispatch panel never scrolls with the message: wide layouts keep it
+  /// in a side column, narrow ones dock it, foldable, under the messages.
   Widget _detail({required bool compact}) {
     final thread = _thread!;
     final header = _emailHeader(thread, compact: compact);
     final body = _messageColumn(thread);
-    final dispatch = widget.dispatchRepository == null
-        ? null
-        : DispatchPanel(
-            key: ValueKey(
-              'dispatch/${_mailbox!.id}/${thread.id}/${thread.latestMessageId}',
-            ),
-            copy: widget.dispatchCopy,
-            repository: widget.dispatchRepository!,
-            mailboxId: _mailbox!.id,
-            threadId: thread.id,
-            messageId: thread.latestMessageId,
-            initialAnalysis: widget.analysisFor?.call(thread.latestMessageId),
-            analysisSetupRequired: widget.analysisSetupRequired,
-            onAnalysisSetup: widget.onAnalysisSetup,
-            analyze: widget.onAnalyzeThread == null
-                ? null
-                : (destinations) => widget.onAnalyzeThread!(
-                    thread,
-                    destinations,
-                    _mailbox!.id,
-                  ),
-          );
+    final scheme = Theme.of(context).colorScheme;
+    DispatchPanel dispatchPanel({required bool docked}) => DispatchPanel(
+      key: ValueKey(
+        'dispatch/${_mailbox!.id}/${thread.id}/${thread.latestMessageId}',
+      ),
+      copy: widget.dispatchCopy,
+      repository: widget.dispatchRepository!,
+      mailboxId: _mailbox!.id,
+      threadId: thread.id,
+      messageId: thread.latestMessageId,
+      initialAnalysis: widget.analysisFor?.call(thread.latestMessageId),
+      analysisSetupRequired: widget.analysisSetupRequired,
+      onAnalysisSetup: widget.onAnalysisSetup,
+      collapsed: docked && _dispatchCollapsed,
+      onToggleCollapsed: docked
+          ? () => setState(() => _dispatchCollapsed = !_dispatchCollapsed)
+          : null,
+      analyze: widget.onAnalyzeThread == null
+          ? null
+          : (destinations) =>
+                widget.onAnalyzeThread!(thread, destinations, _mailbox!.id),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
+        final hasDispatch = widget.dispatchRepository != null;
         final stacked =
             constraints.maxWidth < EmailCockpitLayout.dispatchBreakpoint;
         final pane = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             header,
-            Expanded(
-              child: _detailScroll(
-                dispatch != null && stacked ? [...body, dispatch] : body,
+            Expanded(child: _detailScroll(body)),
+            if (hasDispatch && stacked)
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight:
+                      constraints.maxHeight *
+                      EmailCockpitLayout.dispatchDockMaxFraction,
+                ),
+                child: Material(
+                  color: scheme.surfaceContainerLow,
+                  shape: Border(top: BorderSide(color: scheme.outlineVariant)),
+                  child: dispatchPanel(docked: true),
+                ),
               ),
-            ),
           ],
         );
-        if (dispatch == null || stacked) return pane;
+        if (!hasDispatch || stacked) return pane;
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1090,9 +1102,9 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
             const VerticalDivider(width: EmailCockpitLayout.rule),
             SizedBox(
               width: EmailCockpitLayout.dispatchWidth,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(EmailCockpitLayout.detailGap),
-                child: dispatch,
+              child: Material(
+                color: scheme.surfaceContainerLow,
+                child: dispatchPanel(docked: false),
               ),
             ),
           ],

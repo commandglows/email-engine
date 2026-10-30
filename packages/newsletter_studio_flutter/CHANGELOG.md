@@ -8,6 +8,9 @@
   state pills, a side-by-side dispatch column on wide layouts, sectioned
   dispatch form, and one shared notice and empty-state component across panels.
 - Keep the email header fixed in the detail pane so only the messages scroll.
+- Dock the dispatch panel, foldable, under the messages on narrow layouts so it
+  never scrolls with the email; fixed header and confirm footer, dense fields,
+  optional justification and risks folded, compact mailbox toolbar.
 - Add explicit, disclosed saved-revision link checks to campaign review, with
   blocker/uncertain states, auditable override callbacks and stable block-to-URL
   focus navigation.

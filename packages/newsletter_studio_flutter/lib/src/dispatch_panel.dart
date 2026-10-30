@@ -17,7 +17,15 @@ class DispatchPanel extends StatefulWidget {
     this.analysisSetupRequired = false,
     this.onAnalysisSetup,
     this.copy = const DispatchPanelCopy(),
+    this.collapsed = false,
+    this.onToggleCollapsed,
   });
+
+  /// Only the header row is shown; the form keeps its state.
+  final bool collapsed;
+
+  /// Shows the fold toggle in the header when the host can fold the panel.
+  final VoidCallback? onToggleCollapsed;
 
   /// The host already knows the analysis needs setup (automatic triage hit a
   /// missing key): the panel explains it instead of a generic failure.
@@ -52,6 +60,8 @@ class _DispatchPanelState extends State<DispatchPanel> {
   bool _setupRequired = false;
   bool _busy = true;
   bool _previewing = false;
+  // Justification and risks are optional: folded until asked for or filled.
+  bool _showDetails = false;
   String _filter = '';
   static const _filterMinDestinations = 12;
   static const _contributionTypes = [
@@ -181,6 +191,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
         ..._analysis!.risks,
         ...candidate.risks,
       }.take(10).join('\n');
+      _showDetails = true;
       if (destination.available &&
           (_selected.contains(destination.id) || _selected.length < 5)) {
         _selected.add(destination.id);
@@ -534,6 +545,7 @@ class _DispatchPanelState extends State<DispatchPanel> {
   /// Sub-targets are indented under their project so the hierarchy reads at a glance.
   Widget _destinationTile(DispatchDestination d) => CheckboxListTile(
     dense: true,
+    visualDensity: VisualDensity.compact,
     contentPadding: EdgeInsetsDirectional.only(
       start: d.kind == 'project' ? EmailCockpitLayout.gap : 40.0,
       end: EmailCockpitLayout.gap,
@@ -619,7 +631,12 @@ class _DispatchPanelState extends State<DispatchPanel> {
               children: [
                 Text(destination.label, style: theme.textTheme.titleSmall),
                 Text(
-                  '${candidate.contributionType} · ${candidate.confidence}\n${candidate.justification}\n${candidate.risks.join("\n")}',
+                  [
+                    '${_contributionTypeLabel(candidate.contributionType)} · ${(candidate.confidence * 100).round()} %',
+                    if (candidate.justification.isNotEmpty)
+                      candidate.justification,
+                    ...candidate.risks,
+                  ].join('\n'),
                   style: theme.textTheme.bodySmall,
                 ),
               ],
@@ -677,216 +694,347 @@ class _DispatchPanelState extends State<DispatchPanel> {
     );
   }
 
+  /// Counters appear only near the limit so empty fields stay one line tall.
+  static Widget? _nearLimitCounter(
+    BuildContext context, {
+    required int currentLength,
+    required int? maxLength,
+    required bool isFocused,
+  }) => maxLength == null || currentLength < maxLength * 0.8
+      ? null
+      : Text('$currentLength/$maxLength');
+
+  static InputDecoration _dense(String label, {String? hint}) =>
+      InputDecoration(isDense: true, labelText: label, hintText: hint);
+
+  /// Fixed header: title, list freshness, refresh and, when the host can fold
+  /// the panel, the fold toggle. A folded header opens the panel on tap.
+  Widget _header(ThemeData theme, TextStyle? muted) {
+    final generatedAt = _context?.generatedAt;
+    final collapsed = widget.collapsed;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: collapsed ? widget.onToggleCollapsed : null,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(
+              EmailCockpitLayout.gap,
+              EmailCockpitLayout.smallGap,
+              EmailCockpitLayout.smallGap,
+              EmailCockpitLayout.smallGap,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.alt_route,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: EmailCockpitLayout.smallGap),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.copy.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (collapsed && _selected.isNotEmpty)
+                        Text(
+                          '${_selected.length} sur 5 au maximum',
+                          style: muted,
+                        )
+                      else if (generatedAt != null)
+                        Text(
+                          _freshnessLabel(generatedAt),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: muted,
+                        ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Actualiser les reçus',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 20,
+                  onPressed: _busy ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+                if (widget.onToggleCollapsed != null)
+                  IconButton(
+                    tooltip: collapsed
+                        ? 'Déplier le dispatch'
+                        : 'Replier le dispatch',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 20,
+                    onPressed: widget.onToggleCollapsed,
+                    icon: Icon(
+                      collapsed ? Icons.expand_less : Icons.expand_more,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        // Reserved height: the progress line never shifts the layout.
+        SizedBox(
+          height: 2,
+          child: _busy && !_previewing
+              ? const LinearProgressIndicator(minHeight: 2)
+              : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _body(ThemeData theme, TextStyle? muted) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(widget.copy.intro, style: muted),
+      const SizedBox(height: EmailCockpitLayout.mediumGap),
+      if (widget.analyze == null)
+        const EmailNotice(
+          'Analyse IA indisponible. Préparez une proposition manuelle à valider.',
+          icon: Icons.auto_awesome_outlined,
+        )
+      else
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+            onPressed: _locked || !_ready ? null : _analyze,
+            icon: const Icon(Icons.auto_awesome, size: 18),
+            label: const Text('Pré-trier cet email avec l’IA'),
+          ),
+        ),
+      if (_analysis case final analysis?) _analysisBlock(analysis),
+      if (_setupRequired || widget.analysisSetupRequired) ...[
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        EmailNotice(
+          widget.copy.analysisSetupRequired,
+          icon: Icons.key_outlined,
+          action: widget.onAnalysisSetup == null
+              ? null
+              : TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: widget.onAnalysisSetup,
+                  child: Text(widget.copy.analysisSetupAction),
+                ),
+        ),
+      ] else if (_error != null) ...[
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        EmailNotice(_error!, error: true),
+      ],
+      if (_pending != null) ...[
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        OutlinedButton(
+          onPressed: _busy ? null : () => _recover(_pending!),
+          child: const Text('Récupérer le résultat incertain'),
+        ),
+      ],
+      for (final d in _history) _historyEntry(d),
+      const SizedBox(height: EmailCockpitLayout.gap),
+      TextField(
+        controller: _summary,
+        enabled: !_locked,
+        maxLength: 4000,
+        buildCounter: _nearLimitCounter,
+        minLines: 2,
+        maxLines: 6,
+        decoration: _dense('Résumé factuel à transmettre'),
+      ),
+      const SizedBox(height: EmailCockpitLayout.smallGap),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey(_type),
+              initialValue: _type,
+              isExpanded: true,
+              decoration: _dense('Type d’apport'),
+              items: [
+                for (final code in _contributionTypes)
+                  DropdownMenuItem(
+                    value: code,
+                    child: Text(
+                      _contributionTypeLabel(code),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: _locked ? null : (v) => setState(() => _type = v!),
+            ),
+          ),
+          const SizedBox(width: EmailCockpitLayout.smallGap),
+          Expanded(
+            flex: 2,
+            child: TextField(
+              controller: _confidence,
+              enabled: !_locked,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: _dense('Confiance (0 à 1)', hint: 'Facultative'),
+            ),
+          ),
+        ],
+      ),
+      Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton.icon(
+          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+          onPressed: () => setState(() => _showDetails = !_showDetails),
+          icon: Icon(
+            _showDetails ? Icons.expand_less : Icons.expand_more,
+            size: 18,
+          ),
+          label: const Text('Justification et risques (facultatif)'),
+        ),
+      ),
+      if (_showDetails) ...[
+        TextField(
+          controller: _justification,
+          enabled: !_locked,
+          maxLength: 2000,
+          buildCounter: _nearLimitCounter,
+          minLines: 1,
+          maxLines: 4,
+          decoration: _dense('Justification'),
+        ),
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        TextField(
+          controller: _risks,
+          enabled: !_locked,
+          minLines: 1,
+          maxLines: 4,
+          decoration: _dense('Risques (un par ligne, maximum 10)'),
+        ),
+      ],
+      const SizedBox(height: EmailCockpitLayout.gap),
+      Text('Destinations', style: theme.textTheme.titleSmall),
+      if (_filtering) ...[
+        const SizedBox(height: EmailCockpitLayout.smallGap),
+        TextField(
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: widget.copy.filterHint,
+            prefixIcon: const Icon(Icons.search, size: 18),
+          ),
+          onChanged: (v) => setState(() => _filter = v),
+        ),
+      ],
+      for (final group in _groupedDestinations) ...[
+        Semantics(
+          header: true,
+          child: Padding(
+            padding: const EdgeInsets.only(
+              top: EmailCockpitLayout.smallGap,
+              bottom: 4,
+            ),
+            child: Text(group.header, style: muted),
+          ),
+        ),
+        Card.outlined(
+          margin: EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [for (final d in group.items) _destinationTile(d)],
+          ),
+        ),
+      ],
+      if (_context?.destinations.isEmpty == true)
+        Padding(
+          padding: const EdgeInsets.only(top: EmailCockpitLayout.smallGap),
+          child: EmailNotice(
+            widget.copy.emptyDestinations,
+            icon: Icons.folder_off_outlined,
+          ),
+        ),
+    ],
+  );
+
+  /// Fixed footer: the selection count and the confirmation stay reachable
+  /// while the form scrolls.
+  Widget _footer(ThemeData theme, TextStyle? muted) => DecoratedBox(
+    decoration: BoxDecoration(
+      border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: EmailCockpitLayout.gap,
+        vertical: EmailCockpitLayout.smallGap,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text('${_selected.length} sur 5 au maximum', style: muted),
+          ),
+          const SizedBox(width: EmailCockpitLayout.smallGap),
+          Flexible(
+            flex: 3,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: _locked || !_ready ? null : _confirm,
+              icon: const Icon(Icons.fact_check_outlined, size: 18),
+              label: const Text(
+                'Revoir et confirmer le dispatch',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  /// Header and footer stay fixed; only the form scrolls when the host bounds
+  /// the panel height. Unbounded (inside a scroll view) it lays out inline.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final muted = theme.textTheme.bodySmall?.copyWith(
-      color: scheme.onSurfaceVariant,
+      color: theme.colorScheme.onSurfaceVariant,
     );
-    final generatedAt = _context?.generatedAt;
-    return Card(
-      child: Padding(
-        padding: EmailCockpitLayout.cardPadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: EmailCockpitLayout.smallGap,
-              runSpacing: EmailCockpitLayout.smallGap,
-              children: [
-                Text(
-                  widget.copy.title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _busy ? null : _load,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Actualiser les reçus'),
-                ),
-              ],
-            ),
-            Text(widget.copy.intro, style: muted),
-            if (generatedAt != null)
-              Text(_freshnessLabel(generatedAt), style: muted),
-            const SizedBox(height: EmailCockpitLayout.gap),
-            if (widget.analyze == null)
-              const EmailNotice(
-                'Analyse IA indisponible. Préparez une proposition manuelle à valider.',
-                icon: Icons.auto_awesome_outlined,
-              )
-            else
-              OutlinedButton.icon(
-                onPressed: _locked || !_ready ? null : _analyze,
-                icon: const Icon(Icons.auto_awesome),
-                label: const Text('Pré-trier cet email avec l’IA'),
-              ),
-            if (_analysis case final analysis?) _analysisBlock(analysis),
-            if (_busy && !_previewing) ...[
-              const SizedBox(height: EmailCockpitLayout.smallGap),
-              const LinearProgressIndicator(),
-            ],
-            if (_setupRequired || widget.analysisSetupRequired) ...[
-              const SizedBox(height: EmailCockpitLayout.smallGap),
-              EmailNotice(widget.copy.analysisSetupRequired),
-              if (widget.onAnalysisSetup != null)
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: TextButton.icon(
-                    onPressed: widget.onAnalysisSetup,
-                    icon: const Icon(Icons.key_outlined, size: 18),
-                    label: Text(widget.copy.analysisSetupAction),
-                  ),
-                ),
-            ] else if (_error != null) ...[
-              const SizedBox(height: EmailCockpitLayout.smallGap),
-              EmailNotice(_error!, error: true),
-            ],
-            if (_pending != null) ...[
-              const SizedBox(height: EmailCockpitLayout.smallGap),
-              OutlinedButton(
-                onPressed: _busy ? null : () => _recover(_pending!),
-                child: const Text('Récupérer le résultat incertain'),
-              ),
-            ],
-            for (final d in _history) _historyEntry(d),
-            const SizedBox(height: EmailCockpitLayout.largeGap),
-            Text('Proposition', style: theme.textTheme.titleSmall),
-            const SizedBox(height: EmailCockpitLayout.smallGap),
-            TextField(
-              controller: _summary,
-              enabled: !_locked,
-              maxLength: 4000,
-              minLines: 3,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: 'Résumé factuel à transmettre',
-              ),
-            ),
-            const SizedBox(height: EmailCockpitLayout.smallGap),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: DropdownButtonFormField<String>(
-                    key: ValueKey(_type),
-                    initialValue: _type,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Type d’apport',
-                    ),
-                    items: [
-                      for (final code in _contributionTypes)
-                        DropdownMenuItem(
-                          value: code,
-                          child: Text(_contributionTypeLabel(code)),
-                        ),
-                    ],
-                    onChanged: _locked
-                        ? null
-                        : (v) => setState(() => _type = v!),
-                  ),
-                ),
-                const SizedBox(width: EmailCockpitLayout.mediumGap),
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _confidence,
-                    enabled: !_locked,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Confiance (0 à 1)',
-                      hintText: 'Facultative',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: EmailCockpitLayout.smallGap),
-            TextField(
-              controller: _justification,
-              enabled: !_locked,
-              maxLength: 2000,
-              minLines: 2,
-              maxLines: 4,
-              decoration: const InputDecoration(labelText: 'Justification'),
-            ),
-            const SizedBox(height: EmailCockpitLayout.smallGap),
-            TextField(
-              controller: _risks,
-              enabled: !_locked,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: 'Risques (un par ligne, maximum 10)',
-              ),
-            ),
-            const SizedBox(height: EmailCockpitLayout.largeGap),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Destinations',
-                    style: theme.textTheme.titleSmall,
-                  ),
-                ),
-                Text('${_selected.length} sur 5 au maximum', style: muted),
-              ],
-            ),
-            const SizedBox(height: EmailCockpitLayout.smallGap),
-            if (_filtering) ...[
-              TextField(
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: widget.copy.filterHint,
-                  prefixIcon: const Icon(Icons.search),
-                ),
-                onChanged: (v) => setState(() => _filter = v),
-              ),
-              const SizedBox(height: EmailCockpitLayout.smallGap),
-            ],
-            for (final group in _groupedDestinations) ...[
-              Semantics(
-                header: true,
-                child: Padding(
-                  padding: const EdgeInsets.only(
-                    top: EmailCockpitLayout.smallGap,
-                    bottom: 4,
-                  ),
-                  child: Text(group.header, style: theme.textTheme.labelLarge),
-                ),
-              ),
-              Card.outlined(
-                margin: EdgeInsets.zero,
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [for (final d in group.items) _destinationTile(d)],
-                ),
-              ),
-            ],
-            if (_context?.destinations.isEmpty == true)
-              Padding(
-                padding: EdgeInsets.only(top: EmailCockpitLayout.smallGap),
-                child: EmailNotice(
-                  widget.copy.emptyDestinations,
-                  icon: Icons.folder_off_outlined,
-                ),
-              ),
-            const SizedBox(height: EmailCockpitLayout.largeGap),
-            FilledButton.icon(
-              onPressed: _locked || !_ready ? null : _confirm,
-              icon: const Icon(Icons.fact_check_outlined),
-              label: const Text('Revoir et confirmer le dispatch'),
-            ),
-          ],
-        ),
+    final header = _header(theme, muted);
+    if (widget.collapsed) return header;
+    final body = _body(theme, muted);
+    const bodyPadding = EdgeInsets.fromLTRB(
+      EmailCockpitLayout.gap,
+      EmailCockpitLayout.smallGap,
+      EmailCockpitLayout.gap,
+      EmailCockpitLayout.gap,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          header,
+          if (constraints.hasBoundedHeight)
+            Flexible(
+              child: SingleChildScrollView(padding: bodyPadding, child: body),
+            )
+          else
+            Padding(padding: bodyPadding, child: body),
+          _footer(theme, muted),
+        ],
       ),
     );
   }
