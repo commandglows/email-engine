@@ -25,8 +25,13 @@ class SupportWorkspace extends StatefulWidget {
     this.advanceAfterAction = SupportThreadAdvance.none,
     this.oauthReturnOrigin,
     this.onAnalyzeThread,
+    this.toolbarSlot,
   });
   final SupportRepository repository;
+
+  /// When set, the mailbox toolbar is published here for the host to place
+  /// (in its app bar for instance) instead of being drawn above the inbox.
+  final ValueNotifier<Widget?>? toolbarSlot;
   final DispatchRepository? dispatchRepository;
 
   /// Texts of the dispatch panel; the defaults are the project wording.
@@ -76,6 +81,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   bool _needsMetadataRefresh = false;
   int _generation = 0;
   int _observabilityGeneration = 0;
+  Widget? _published;
   String get _key => '${_mailbox?.id}/${_thread?.id}';
   String get _replyKey => '$_key/${_thread?.latestMessageId}';
   @override
@@ -85,7 +91,18 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   }
 
   @override
+  void didUpdateWidget(SupportWorkspace oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldSlot = oldWidget.toolbarSlot;
+    if (oldSlot != null && oldSlot != widget.toolbarSlot) {
+      _releaseToolbar(oldSlot);
+    }
+  }
+
+  @override
   void dispose() {
+    final slot = widget.toolbarSlot;
+    if (slot != null) _releaseToolbar(slot);
     _reply.dispose();
     super.dispose();
   }
@@ -315,10 +332,7 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   }
 
   Future<void> _loadMore() async {
-    final page = await widget.repository.threads(
-      _mailbox!.id,
-      cursor: _cursor,
-    );
+    final page = await widget.repository.threads(_mailbox!.id, cursor: _cursor);
     if (!mounted) return;
     setState(() {
       final ids = _items.map((t) => t.id).toSet();
@@ -604,58 +618,20 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
   Widget build(BuildContext context) {
     final mailbox = _mailbox;
     final theme = Theme.of(context);
+    final toolbar = _toolbar(mailbox, theme);
+    final slot = widget.toolbarSlot;
+    if (slot != null) _publishToolbar(slot, toolbar);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // One dense toolbar row; a host app with its own title (user mailbox
-        // mode) does not repeat the section name.
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: EmailCockpitLayout.gap,
-            vertical: EmailCockpitLayout.smallGap,
+        if (slot == null)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: EmailCockpitLayout.gap,
+              vertical: EmailCockpitLayout.smallGap,
+            ),
+            child: toolbar,
           ),
-          child: Row(
-            children: [
-              if (!widget.userMailboxMode) ...[
-                Flexible(
-                  child: Text(
-                    'Service client',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: EmailCockpitLayout.mediumGap),
-              ],
-              if (_context?.mailboxes.isNotEmpty == true) ...[
-                Flexible(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 300),
-                    child: _mailboxPicker(mailbox, theme),
-                  ),
-                ),
-                const SizedBox(width: EmailCockpitLayout.smallGap / 2),
-              ],
-              if (widget.userMailboxMode)
-                IconButton(
-                  tooltip: 'Ajouter une boîte Gmail',
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 20,
-                  onPressed: _busy ? null : _addMailbox,
-                  icon: const Icon(Icons.add),
-                ),
-              IconButton(
-                tooltip: 'Actualiser les boîtes',
-                visualDensity: VisualDensity.compact,
-                iconSize: 20,
-                onPressed: _busy || _loading ? null : _loadContext,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
-          ),
-        ),
         if (_error != null) _banner(_error!, error: true),
         if (!widget.mailboxReadOnly &&
             !widget.userMailboxMode &&
@@ -781,6 +757,71 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
         ),
       ],
     );
+  }
+
+  /// Dense mailbox toolbar; a host app with its own title (user mailbox mode)
+  /// does not repeat the section name.
+  Widget _toolbar(SupportMailbox? mailbox, ThemeData theme) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (!widget.userMailboxMode) ...[
+        Flexible(
+          child: Text(
+            'Service client',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(width: EmailCockpitLayout.mediumGap),
+      ],
+      if (_context?.mailboxes.isNotEmpty == true) ...[
+        Flexible(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280),
+            child: _mailboxPicker(mailbox, theme),
+          ),
+        ),
+        const SizedBox(width: EmailCockpitLayout.smallGap / 2),
+      ],
+      if (widget.userMailboxMode)
+        IconButton(
+          tooltip: 'Ajouter une boîte Gmail',
+          visualDensity: VisualDensity.compact,
+          iconSize: 20,
+          onPressed: _busy ? null : _addMailbox,
+          icon: const Icon(Icons.add),
+        ),
+      IconButton(
+        tooltip: 'Actualiser les boîtes',
+        visualDensity: VisualDensity.compact,
+        iconSize: 20,
+        onPressed: _busy || _loading ? null : _loadContext,
+        icon: const Icon(Icons.refresh),
+      ),
+    ],
+  );
+
+  /// Hands the toolbar to the host after the frame: the slot's listeners
+  /// live outside this subtree and cannot rebuild during its build.
+  void _publishToolbar(ValueNotifier<Widget?> slot, Widget toolbar) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.toolbarSlot != slot) return;
+      _published = toolbar;
+      slot.value = toolbar;
+    });
+  }
+
+  /// Empties [slot] unless a newer workspace already published into it.
+  void _releaseToolbar(ValueNotifier<Widget?> slot) {
+    final published = _published;
+    _published = null;
+    if (published == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (identical(slot.value, published)) slot.value = null;
+    });
   }
 
   /// Compact mailbox selector: the mail icon and tooltip replace a label.
@@ -1156,8 +1197,8 @@ class _SupportWorkspaceState extends State<SupportWorkspace> {
                           thread.isArchived == null
                       ? null
                       : () => thread.isArchived!
-                      ? _setGmailMetadata(archived: false)
-                      : _archiveThread(thread),
+                            ? _setGmailMetadata(archived: false)
+                            : _archiveThread(thread),
                   icon: Icon(
                     thread.isArchived == true
                         ? Icons.unarchive_outlined
