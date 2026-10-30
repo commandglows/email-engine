@@ -77,6 +77,18 @@ to projects from their pitches (runner `POST /v1/email-triage`); ContentGlows
 routes to contents (lab `POST /api/email-triage`, v2 body). Both use TypeSafe's
 Jev decision model with one predicate per project, so one email can fit several.
 
+Automatic triage (2026-10-30, operator decision): each host offers a device
+setting, off by default, "Tri automatique des emails". Turning it on is the
+operator's standing consent to external analysis of new inbox emails, revoked
+by turning it off; without it the per-analysis consent dialog still applies.
+`EmailAutoTriage` (email_mailbox_client) runs on `shipglows_routines` (inbox
+open, return to the app, hourly, 5-minute minimum gap) and its suggestions
+appear in the dispatch panel without the dialog; dispatches to projects or
+contents are still confirmed by hand. Exception, technical alerts (error
+tracker, CI, dependency, monitoring, code host): on ShipGlows.app the runner
+files them at once as an `email.alert` signal of the named project (Jev
+confidence 0.7 or more), with no arbitration, since a technical signal needs none.
+
 Intake POST /api/projects/{project_id}/review-intake accepts client_intake_id
 (stable UUID), source_key, summary (1..4000), contribution_type, justification
 (0..2000), confidence (optional 0..1), risks (max 10, 500 each). No raw body,

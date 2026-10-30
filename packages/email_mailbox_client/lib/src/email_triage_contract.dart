@@ -24,7 +24,8 @@ Map<String, dynamic> emailTriageRequest({
   'schema_version': emailTriageSchemaVersion,
   'consent_external_analysis': true,
   'source_revision': sourceRevision,
-  'text': text,
+  // Hosts accept 20,000 characters; a long newsletter is judged on its start.
+  'text': _clip(text, 20000),
   if (subject != null && subject.trim().isNotEmpty)
     'subject': _clip(subject.trim(), 500),
   if (sender != null && sender.trim().isNotEmpty)
@@ -80,8 +81,11 @@ DispatchAnalysis parseEmailTriageResponse(
         confidence > 1 ||
         risks is! List ||
         risks.any((risk) => risk is! String) ||
-        raw['contribution_type'] is! String ||
-        raw['justification'] is! String) {
+        !_contributionTypes.contains(raw['contribution_type']) ||
+        raw['justification'] is! String ||
+        (raw['justification'] as String).length > 2000 ||
+        risks.length > 10 ||
+        risks.any((risk) => (risk as String).length > 500)) {
       throw invalid;
     }
     candidates.add(
@@ -123,5 +127,21 @@ DispatchAnalysis parseEmailTriageResponse(
   );
 }
 
-String _clip(String value, int max) =>
-    value.length <= max ? value : value.substring(0, max);
+/// Clips by code points so a surrogate pair is never split.
+String _clip(String value, int max) {
+  if (value.length <= max) return value;
+  final buffer = StringBuffer();
+  for (final rune in value.runes) {
+    final char = String.fromCharCode(rune);
+    if (buffer.length + char.length > max) break;
+    buffer.write(char);
+  }
+  return buffer.toString();
+}
+
+const _contributionTypes = {
+  'newsletter_inspiration',
+  'thematic_source',
+  'potential_task',
+  'other',
+};

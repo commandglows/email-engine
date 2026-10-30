@@ -109,10 +109,12 @@ class EmailAutoTriage extends ChangeNotifier {
       if (destinations.isEmpty) continue;
       for (final summary in threads) {
         if (_disposed) break;
-        final revision = summary.updatedAt?.toIso8601String() ?? '';
+        // Without a timestamp the thread is fetched again; its latest message
+        // id then tells whether it was already analysed.
+        final revision = summary.updatedAt?.toIso8601String();
         final key = '${mailbox.id}/${summary.id}';
         if (summary.isArchived == true ||
-            _seenRevision[key] == revision ||
+            (revision != null && _seenRevision[key] == revision) ||
             analyzed + failed >= maxThreadsPerRun) {
           skipped++;
           continue;
@@ -120,13 +122,13 @@ class EmailAutoTriage extends ChangeNotifier {
         try {
           final thread = await support.thread(mailbox.id, summary.id);
           if (_byMessage.containsKey(thread.latestMessageId)) {
-            _seenRevision[key] = revision;
+            if (revision != null) _seenRevision[key] = revision;
             skipped++;
             continue;
           }
           final analysis = await analyze(thread, destinations, mailbox.id);
           _remember(thread.latestMessageId, analysis);
-          _seenRevision[key] = revision;
+          if (revision != null) _seenRevision[key] = revision;
           analyzed++;
           if (analysis.notices.isNotEmpty) automatic++;
         } catch (_) {
