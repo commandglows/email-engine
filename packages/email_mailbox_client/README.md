@@ -22,8 +22,8 @@ be remotely available. Artifact compilation does not prove hosted activation.
 
 `CentralCampaignBridgeApi` talks to a CommandGlows campaign bridge at
 `/api/bridge/email-campaigns/{provider}`. The `provider` parameter is a
-`CampaignBridgeProvider`: `firebase` (the default, for existing callers) or
-`shipglowsClerk` (`shipglows_clerk`, the ShipGlows App's Clerk id_token). Pass it
+`CampaignBridgeProvider`: `shipglowsClerk` (`shipglows_clerk`, the ShipGlows App's
+Clerk id_token, the default and only value since suite auth lot 8 dropped `firebase`). Pass it
 to `CentralCampaignBridgeApi.create(provider: ...)`. A `CentralEmailApi` passed to
 the constructor must use the same `apiBasePath`, or the constructor throws
 `ArgumentError`. It reuses `CentralEmailApi`, so bearer injection, the no-redirect

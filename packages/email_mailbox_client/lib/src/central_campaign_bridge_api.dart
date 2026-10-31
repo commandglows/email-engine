@@ -9,7 +9,6 @@ import 'central_email_api.dart';
 /// Identity provider behind a CommandGlows campaign bridge route. The route
 /// segment is part of the bridge contract, so it is fixed here and never free text.
 enum CampaignBridgeProvider {
-  firebase('firebase'),
   shipglowsClerk('shipglows_clerk');
 
   const CampaignBridgeProvider(this.routeSegment);
@@ -26,14 +25,15 @@ enum CampaignBridgeProvider {
 /// uncertain command reuses its key, and an edited command gets a new one.
 ///
 /// [provider] names the bridge route the [api] must target. The default is
-/// `firebase` for existing callers. A mismatched [api] base path is refused.
+/// `shipglows_clerk` (the client stopped offering `firebase` with suite auth lot 8).
+/// A mismatched [api] base path is refused.
 ///
 /// Approval, challenge and resume are not offered here. The bridge refuses them
 /// with `console_required`, and the app sends the operator to the console.
 class CentralCampaignBridgeApi {
   CentralCampaignBridgeApi(
     this.api, {
-    this.provider = CampaignBridgeProvider.firebase,
+    this.provider = CampaignBridgeProvider.shipglowsClerk,
   }) {
     if (api.apiBasePath != provider.apiBasePath) {
       throw ArgumentError.value(
@@ -51,7 +51,7 @@ class CentralCampaignBridgeApi {
     required Uri origin,
     required http.Client client,
     EmailAccessTokenProvider? accessTokenProvider,
-    CampaignBridgeProvider provider = CampaignBridgeProvider.firebase,
+    CampaignBridgeProvider provider = CampaignBridgeProvider.shipglowsClerk,
   }) => CentralCampaignBridgeApi(
     CentralEmailApi(
       origin: origin,

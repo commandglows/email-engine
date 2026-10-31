@@ -58,7 +58,7 @@ as inbox-rendering or deliverability proof.
   review package with provider-neutral host hooks.
 - `packages/email_mailbox_client`: shared mailbox client. `CentralCampaignBridgeApi`
   drafts product-update campaigns through the CommandGlows campaign bridge
-  (`/api/bridge/email-campaigns/firebase`); approval stays in the CommandGlows
+  (`/api/bridge/email-campaigns/shipglows_clerk`); approval stays in the CommandGlows
   console and the client holds no provider credentials.
 - `demo`: unified Flutter Web preview consuming both packages by local path.
 - `app`: same-origin authenticated newsletter operator; no provider credentials.

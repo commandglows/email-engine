@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 
-const _bridge = '/api/bridge/email-mailbox/firebase';
+const _bridge = '/api/bridge/email-mailbox/shipglows_clerk';
 const _fingerprint = 'ABCD-EFGH';
 
 CentralEmailApi _api(http.Client client) => CentralEmailApi(

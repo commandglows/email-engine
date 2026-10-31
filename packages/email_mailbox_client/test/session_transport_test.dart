@@ -11,7 +11,7 @@ void main() {
     final api = CentralEmailApi(
       origin: Uri.parse('https://synthetic.test'),
       accessTokenProvider: () async => null,
-      apiBasePath: '/api/bridge/email-mailbox/firebase',
+      apiBasePath: '/api/bridge/email-mailbox/shipglows_clerk',
       client: MockClient((_) async {
         requests++;
         return http.Response('{}', 200);
@@ -30,11 +30,11 @@ void main() {
     final api = CentralEmailApi(
       origin: Uri.parse('https://synthetic.test'),
       accessTokenProvider: () async => 'synthetic-user-session',
-      apiBasePath: '/api/bridge/email-mailbox/firebase',
+      apiBasePath: '/api/bridge/email-mailbox/shipglows_clerk',
       client: MockClient((r) async {
         expect(
           r.url.path,
-          '/api/bridge/email-mailbox/firebase/support/context',
+          '/api/bridge/email-mailbox/shipglows_clerk/support/context',
         );
         expect(r.headers['Authorization'], 'Bearer synthetic-user-session');
         expect(r.followRedirects, false);

@@ -6,8 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 
-const _base = '/api/bridge/email-campaigns/firebase';
-const _token = 'synthetic-firebase-token';
+const _base = '/api/bridge/email-campaigns/shipglows_clerk';
+const _token = 'synthetic-clerk-token';
 
 /// UTF-8 body: `http.Response(String)` would encode accented text as Latin-1.
 http.Response _response(String body, int status) => http.Response.bytes(
@@ -953,12 +953,12 @@ void main() {
   });
 
   group('bridge provider route', () {
-    test('the default provider is firebase', () {
+    test('the default provider is shipglows_clerk', () {
       final api = CentralCampaignBridgeApi.create(
         origin: Uri.parse('https://synthetic.test'),
         client: MockClient((_) async => _response('{}', 200)),
       );
-      expect(api.provider, CampaignBridgeProvider.firebase);
+      expect(api.provider, CampaignBridgeProvider.shipglowsClerk);
       expect(api.api.apiBasePath, _base);
       api.api.close();
     });
@@ -991,19 +991,19 @@ void main() {
 
     test('a constructed api on another route is refused', () {
       final client = MockClient((_) async => _response('{}', 200));
-      final firebaseApi = CentralEmailApi(
+      final otherApi = CentralEmailApi(
         origin: Uri.parse('https://synthetic.test'),
         client: client,
-        apiBasePath: _base,
+        apiBasePath: '/api/bridge/email-mailbox/shipglows_clerk',
       );
       expect(
         () => CentralCampaignBridgeApi(
-          firebaseApi,
+          otherApi,
           provider: CampaignBridgeProvider.shipglowsClerk,
         ),
         throwsArgumentError,
       );
-      firebaseApi.close();
+      otherApi.close();
     });
   });
 }
