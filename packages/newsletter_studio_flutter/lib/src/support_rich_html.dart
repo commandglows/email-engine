@@ -46,6 +46,10 @@ final _unsafeStyle = RegExp(
   r'|-moz-binding|[\\<>]|/\*',
   caseSensitive: false,
 );
+final _colorDeclaration = RegExp(
+  r'(^|;)\s*color\s*:[^;]*',
+  caseSensitive: false,
+);
 
 /// Defense in depth for email HTML: no scripts, forms, embedded views, style
 /// sheets, CSS URLs or non-HTTPS resources, even if a backend returns more.
@@ -79,7 +83,8 @@ String? _cleanAttribute(String? tag, String name, String value) {
   switch (name) {
     case 'style':
       final safe = text.length <= 500 && !_unsafeStyle.hasMatch(text);
-      return safe ? text : null;
+      // Text color is forced by the app (white in dark theme): drop email colors.
+      return safe ? text.replaceAll(_colorDeclaration, '') : null;
     case 'src':
       return tag == 'img' && _isHttps(text) ? text : null;
     case 'href':
@@ -92,7 +97,6 @@ String? _cleanAttribute(String? tag, String name, String value) {
     case 'valign':
       return _valignAttribute.hasMatch(text) ? text : null;
     case 'bgcolor':
-    case 'color':
       return _colorAttribute.hasMatch(text) ? text : null;
     case 'width':
     case 'height':
@@ -127,18 +131,14 @@ class SupportRichHtml extends StatelessWidget {
   final Future<void> Function(Uri)? onOpenLink;
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-    // Email HTML is designed for a white canvas: keep it readable in dark theme.
-    color: Colors.white,
-    child: SelectionArea(
-      child: HtmlWidget(
-        safeEmailHtml(html),
-        textStyle: Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(height: 1.5, color: Colors.black87),
-        customWidgetBuilder: _imageBuilder,
-        onTapUrl: (value) => _openLink(context, value),
-      ),
+  Widget build(BuildContext context) => SelectionArea(
+    child: HtmlWidget(
+      safeEmailHtml(html),
+      textStyle: Theme.of(
+        context,
+      ).textTheme.bodyMedium?.copyWith(height: 1.5, color: Colors.white),
+      customWidgetBuilder: _imageBuilder,
+      onTapUrl: (value) => _openLink(context, value),
     ),
   );
 
