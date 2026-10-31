@@ -158,9 +158,7 @@ void main() {
       );
       expect(repo.confirms, 0);
       expect(
-        tester
-            .widget<CheckboxListTile>(find.byType(CheckboxListTile).first)
-            .value,
+        tester.widget<FilterChip>(find.byType(FilterChip).first).selected,
         isTrue,
       );
     },
@@ -404,17 +402,29 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    double top(String text) => tester.getTopLeft(find.text(text)).dy;
+    // Reading order on the destinations row: an earlier line, or the same
+    // line further left.
+    void before(String a, String b) {
+      final pa = tester.getCenter(find.text(a));
+      final pb = tester.getCenter(find.text(b));
+      final sameLine = (pa.dy - pb.dy).abs() < 12;
+      expect(
+        sameLine ? pa.dx < pb.dx : pa.dy < pb.dy,
+        isTrue,
+        reason: '$a before $b',
+      );
+    }
+
     // Project header, project target, then its sub-target, before the next project.
-    expect(top('Projet Alpha'), lessThan(top('Boîte Alpha')));
-    expect(top('Boîte Alpha'), lessThan(top('Ébauche Alpha')));
-    expect(top('Ébauche Alpha'), lessThan(top('Boîte Beta')));
-    expect(top('Boîte Beta'), lessThan(top('Idée Beta')));
+    before('Projet Alpha', 'Boîte Alpha');
+    before('Boîte Alpha', 'Ébauche Alpha');
+    before('Ébauche Alpha', 'Boîte Beta');
+    before('Boîte Beta', 'Idée Beta');
     expect(find.byIcon(Icons.edit_note_outlined), findsOneWidget);
     expect(find.byIcon(Icons.lightbulb_outline), findsOneWidget);
-    expect(find.text('Ébauche ContentGlows'), findsOneWidget);
+    expect(find.byTooltip('Ébauche ContentGlows'), findsOneWidget);
     expect(
-      find.text('Autorisation projet expirée synthétique'),
+      find.byTooltip('Autorisation projet expirée synthétique'),
       findsOneWidget,
     );
     expect(find.text('Liste mise à jour il y a 7 min'), findsOneWidget);

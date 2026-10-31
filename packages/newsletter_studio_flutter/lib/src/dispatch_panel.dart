@@ -542,34 +542,25 @@ class _DispatchPanelState extends State<DispatchPanel> {
     DispatchReceiptState.inFlight => 'En cours',
   };
 
-  /// Sub-targets listed under a project-level target are indented so the
-  /// hierarchy reads at a glance; a group without one stays flush.
-  Widget _destinationTile(DispatchDestination d, {required bool nested}) =>
-      CheckboxListTile(
-        dense: true,
-        visualDensity: VisualDensity.compact,
-        contentPadding: EdgeInsetsDirectional.only(
-          start: nested ? 36.0 : EmailCockpitLayout.mediumGap,
-          end: EmailCockpitLayout.smallGap,
-        ),
-        value: _selected.contains(d.id),
-        secondary: Icon(_kindIcon(d.kind), size: 20),
-        title: Text(d.label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(
-          _destinationSubtitle(d),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        onChanged: _locked || !d.available
-            ? null
-            : (v) => setState(() {
-                if (v == true) {
-                  _selected.add(d.id);
-                } else {
-                  _selected.remove(d.id);
-                }
-              }),
-      );
+  /// One target as a selectable chip after its project name: the icon shows
+  /// its kind, the tooltip names the kind or why it is unavailable.
+  Widget _destinationChip(DispatchDestination d) => FilterChip(
+    visualDensity: VisualDensity.compact,
+    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    avatar: Icon(_kindIcon(d.kind), size: 18),
+    label: Text(d.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+    tooltip: _destinationSubtitle(d),
+    selected: _selected.contains(d.id),
+    onSelected: _locked || !d.available
+        ? null
+        : (v) => setState(() {
+            if (v) {
+              _selected.add(d.id);
+            } else {
+              _selected.remove(d.id);
+            }
+          }),
+  );
 
   /// Pre-triage suggestions: a tonal block, one row per candidate destination.
   Widget _analysisBlock(DispatchAnalysis analysis) {
@@ -976,13 +967,31 @@ class _DispatchPanelState extends State<DispatchPanel> {
         ),
       ],
       const SizedBox(height: EmailCockpitLayout.mediumGap),
+      // Title, each project and its targets flow on one row; a long list
+      // wraps onto the next lines in the same order.
       Row(
         children: [
           Expanded(
-            child: Text('Destinations', style: theme.textTheme.titleSmall),
+            child: Wrap(
+              spacing: EmailCockpitLayout.smallGap,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text('Destinations', style: theme.textTheme.titleSmall),
+                for (final group in _groupedDestinations) ...[
+                  Semantics(
+                    header: true,
+                    child: Text(group.header, style: muted),
+                  ),
+                  for (final d in group.items) _destinationChip(d),
+                ],
+              ],
+            ),
           ),
-          if (_context?.generatedAt case final generatedAt?)
+          if (_context?.generatedAt case final generatedAt?) ...[
+            const SizedBox(width: EmailCockpitLayout.smallGap),
             Text(_freshnessLabel(generatedAt), style: muted),
+          ],
         ],
       ),
       if (_filtering) ...[
@@ -994,34 +1003,6 @@ class _DispatchPanelState extends State<DispatchPanel> {
             prefixIcon: const Icon(Icons.search, size: 18),
           ),
           onChanged: (v) => setState(() => _filter = v),
-        ),
-      ],
-      for (final group in _groupedDestinations) ...[
-        Semantics(
-          header: true,
-          child: Padding(
-            padding: const EdgeInsets.only(
-              top: EmailCockpitLayout.smallGap,
-              bottom: 4,
-            ),
-            child: Text(group.header, style: muted),
-          ),
-        ),
-        Card.outlined(
-          margin: EdgeInsets.zero,
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final d in group.items)
-                _destinationTile(
-                  d,
-                  nested:
-                      d.kind != 'project' &&
-                      group.items.any((i) => i.kind == 'project'),
-                ),
-            ],
-          ),
         ),
       ],
       if (_context?.destinations.isEmpty == true)
