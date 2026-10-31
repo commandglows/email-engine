@@ -127,12 +127,18 @@ class SupportRichHtml extends StatelessWidget {
   final Future<void> Function(Uri)? onOpenLink;
 
   @override
-  Widget build(BuildContext context) => SelectionArea(
-    child: HtmlWidget(
-      safeEmailHtml(html),
-      textStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
-      customWidgetBuilder: _imageBuilder,
-      onTapUrl: (value) => _openLink(context, value),
+  Widget build(BuildContext context) => ColoredBox(
+    // Email HTML is designed for a white canvas: keep it readable in dark theme.
+    color: Colors.white,
+    child: SelectionArea(
+      child: HtmlWidget(
+        safeEmailHtml(html),
+        textStyle: Theme.of(
+          context,
+        ).textTheme.bodyMedium?.copyWith(height: 1.5, color: Colors.black87),
+        customWidgetBuilder: _imageBuilder,
+        onTapUrl: (value) => _openLink(context, value),
+      ),
     ),
   );
 
