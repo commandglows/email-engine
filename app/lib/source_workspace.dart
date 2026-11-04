@@ -87,6 +87,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     String summary = '',
     String type = '',
     List<String> tags = const [],
+    bool seen = false,
     Uri? url,
     SourceSidebarAttention attention = SourceSidebarAttention.none,
   }) => SourceSidebarItem(
@@ -98,6 +99,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     publishedAt: date ?? DateTime.fromMillisecondsSinceEpoch(0),
     sourceType: type,
     tags: tags,
+    seen: seen,
     attention: attention,
     canonicalExternalUrl: url,
   );
@@ -192,6 +194,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
             date: thread.updatedAt,
             type: 'Service client',
             tags: [thread.status.label],
+            seen: thread.isUnread == false,
           ),
           'support',
         );
@@ -313,6 +316,7 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
             date: current.publishedAt,
             type: 'Service client',
             tags: [detail.status.label],
+            seen: detail.isUnread == false,
           ),
           'support',
         );
@@ -433,6 +437,56 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
       if (mounted) setState(() => _busy = false);
     }
     if (session != null && mounted) await _edit(session);
+  }
+
+  /// Applies a confirmed Gmail read/archive change from a row gesture.
+  Future<void> _gmailState(
+    SourceSidebarItem item, {
+    bool? unread,
+    bool? archived,
+  }) async {
+    final target = _threads[item.id];
+    if (target == null) return;
+    final (mailbox, original) = target;
+    try {
+      final detail = await _support.thread(mailbox, original);
+      final updated = await _support.setGmailMetadata(
+        mailbox,
+        original,
+        expectedMessageId: detail.latestMessageId,
+        isUnread: unread ?? detail.isUnread ?? false,
+        isArchived: archived ?? detail.isArchived ?? false,
+      );
+      if (!mounted) return;
+      setState(() {
+        _error = null;
+        _details[item.id] = updated;
+        if (updated.isArchived == true) {
+          _items.remove(item.id);
+          _sections.remove(item.id);
+          _threads.remove(item.id);
+          if (_selected == item.id) _selected = null;
+        } else {
+          final current = _items[item.id];
+          if (current != null) {
+            _items[item.id] = _row(
+              item.id,
+              current.title,
+              current.authorOrPublisher,
+              current.content,
+              summary: current.summary,
+              date: current.publishedAt,
+              type: current.sourceType,
+              tags: current.tags,
+              seen: updated.isUnread == false,
+            );
+          }
+        }
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = _message(error));
+      rethrow;
+    }
   }
 
   Future<void> _status(String id, SupportStatus status) async {
@@ -802,6 +856,16 @@ class _ReaderSourceWorkspaceState extends State<ReaderSourceWorkspace> {
     readerFooter: _footer(),
     readerBody: _readerBody(),
     searchHint: 'Filtrer les éléments déjà chargés',
+    swipe: const SourceSwipeConfig(
+      startActions: [SourceSwipeAction.archive],
+      endActions: [SourceSwipeAction.markSeen],
+      revealLabel: 'Actions du message',
+      closeLabel: 'Fermer',
+      labels: {'archive': 'Archiver'},
+    ),
+    itemActionsEnabled: (item) => _threads.containsKey(item.id),
+    onArchive: (item) => _gmailState(item, archived: true),
+    onMarkSeen: (item) => _gmailState(item, unread: item.seen),
     navigationHeader: _supportQuery.isEmpty
         ? null
         : Padding(

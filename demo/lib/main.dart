@@ -646,6 +646,7 @@ class _SourceLibraryDemoState extends State<SourceLibraryDemo> {
                 : 'Refresh sources',
             onOpenLibrary: widget.unified ? null : _openLibrary,
             onIngest: _sections.containsKey(_selectedId) ? null : _ingest,
+            swipe: const SourceSwipeConfig(),
             onMarkSeen: _sections.containsKey(_selectedId) ? null : _markSeen,
             onArchive: _sections.containsKey(_selectedId) ? null : _archive,
             onDelete: _sections.containsKey(_selectedId) ? null : _delete,

@@ -64,6 +64,16 @@ source_sidebar_flutter:
 Never pass unsanitized HTML or remote-image markup into `content`. Provider
 credentials and destructive-action authorization belong to the host.
 
+## Row gestures
+
+Pass `swipe: SourceSwipeConfig()` to let rows reveal actions by swipe, long
+press or Alt / Alt+Shift + click (all configurable, including a direct-action
+mode with a trigger distance). Only the actions whose callback
+(`onMarkSeen`, `onArchive`, `onDelete`) is provided are shown; delete keeps
+its confirmation dialog. Use `itemActionsEnabled` to restrict these actions,
+the reader buttons and the archive shortcut to some items. The package depends
+on the sibling `shipglows-ui-engine/flutter/shipglows_swipe_actions` checkout.
+
 ## Keyboard contract
 
 The default Glows bindings are `J/K` and the arrow keys to navigate, `O` or

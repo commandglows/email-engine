@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shipglows_flutter_zoom/shipglows_flutter_zoom.dart';
+import 'package:shipglows_swipe_actions/shipglows_swipe_actions.dart';
 
 import 'source_category.dart';
 import 'grouped_section_header.dart';
@@ -10,6 +11,7 @@ import 'source_move_destination.dart';
 import 'source_sidebar_item.dart';
 import 'source_sidebar_shortcuts.dart';
 import 'source_sidebar_style.dart';
+import 'source_swipe_config.dart';
 import 'source_workspace_actions.dart';
 
 class SourceSidebar extends StatefulWidget {
@@ -55,7 +57,15 @@ class SourceSidebar extends StatefulWidget {
     this.readerFooter,
     this.readerBody,
     this.searchHint,
+    this.swipe,
+    this.itemActionsEnabled,
   });
+
+  /// Enables swipe, long-press and modified-click row actions when non-null.
+  final SourceSwipeConfig? swipe;
+
+  /// Limits archive and mark-seen (swipe, reader buttons, shortcut) to items for which this returns true (default: all).
+  final bool Function(SourceSidebarItem item)? itemActionsEnabled;
 
   final String title;
   final List<SourceSidebarItem> items;
@@ -483,6 +493,58 @@ class _SourceSidebarState extends State<SourceSidebar> {
     });
   }
 
+  bool _actionsAllowed(SourceSidebarItem item) =>
+      widget.itemActionsEnabled?.call(item) != false;
+
+  Widget _wrapSwipe(SourceSidebarItem item, Widget row) {
+    final config = widget.swipe;
+    if (config == null || !_actionsAllowed(item)) return row;
+    String label(SourceSwipeAction a, String fallback) =>
+        config.labels[a.name] ?? fallback;
+    SwipeRowAction? build(SourceSwipeAction a) => switch (a) {
+      SourceSwipeAction.markSeen when widget.onMarkSeen != null =>
+        SwipeRowAction(
+          label: label(a, item.seen ? 'Mark unread' : 'Mark read'),
+          icon: item.seen
+              ? Icons.mark_email_unread_outlined
+              : Icons.drafts_outlined,
+          onInvoke: () => _runAction('mark-seen', item, widget.onMarkSeen!),
+        ),
+      SourceSwipeAction.archive when widget.onArchive != null =>
+        SwipeRowAction(
+          label: label(a, 'Archive'),
+          icon: Icons.archive_outlined,
+          onInvoke: () => _runAction('archive', item, widget.onArchive!),
+        ),
+      SourceSwipeAction.delete when widget.onDelete != null => SwipeRowAction(
+        label: label(a, 'Delete'),
+        icon: Icons.delete_outline,
+        onInvoke: () => _confirmDelete(item),
+      ),
+      _ => null,
+    };
+    List<SwipeRowAction> resolve(List<SourceSwipeAction> ids) =>
+        ids.map(build).whereType<SwipeRowAction>().toList(growable: false);
+    final start = resolve(config.startActions);
+    final end = resolve(config.endActions);
+    if (start.isEmpty && end.isEmpty) return row;
+    return ShipglowsSwipeActions(
+      key: ValueKey('swipe-${item.id}'),
+      revealLabel: config.revealLabel,
+      closeLabel: config.closeLabel,
+      startActions: start,
+      endActions: end,
+      commitStart: config.direct,
+      commitEnd: config.direct,
+      commitThreshold: config.threshold,
+      hapticFeedback: config.haptics,
+      longPressSide: config.longPressSide,
+      clickBindings: config.clickBindings,
+      onError: (error, _) => widget.onActionError?.call(error),
+      child: row,
+    );
+  }
+
   Future<void> _runAction(
     String name,
     SourceSidebarItem item,
@@ -740,7 +802,9 @@ class _SourceSidebarState extends State<SourceSidebar> {
   void _archiveActive() {
     if (_isEditingText || widget.onArchive == null) return;
     final item = _actionItem;
-    if (item != null) _runAction('archive', item, widget.onArchive!);
+    if (item != null && _actionsAllowed(item)) {
+      _runAction('archive', item, widget.onArchive!);
+    }
   }
 
   void _deleteActive() {
@@ -1181,6 +1245,9 @@ class _SourceSidebarState extends State<SourceSidebar> {
                                       onRefresh: widget.onRefresh,
                                       refreshTooltip: widget.refreshTooltip,
                                       onLoadMore: widget.onLoadMore,
+                                      rowWrapper: widget.swipe == null
+                                          ? null
+                                          : _wrapSwipe,
                                     )
                                   : _ReaderPane(
                                       readerFooter: widget.readerFooter,
@@ -1202,14 +1269,18 @@ class _SourceSidebarState extends State<SourceSidebar> {
                                               _selectedItem!,
                                               widget.onIngest!,
                                             ),
-                                      onMarkSeen: widget.onMarkSeen == null
+                                      onMarkSeen:
+                                          widget.onMarkSeen == null ||
+                                              !_actionsAllowed(_selectedItem!)
                                           ? null
                                           : () => _runAction(
                                               'seen',
                                               _selectedItem!,
                                               widget.onMarkSeen!,
                                             ),
-                                      onArchive: widget.onArchive == null
+                                      onArchive:
+                                          widget.onArchive == null ||
+                                              !_actionsAllowed(_selectedItem!)
                                           ? null
                                           : () => _runAction(
                                               'archive',
@@ -1871,8 +1942,10 @@ class _SourceInbox extends StatelessWidget {
     required this.onRefresh,
     required this.refreshTooltip,
     required this.onLoadMore,
+    this.rowWrapper,
   });
 
+  final Widget Function(SourceSidebarItem item, Widget row)? rowWrapper;
   final List<SourceSidebarItem> items;
   final Map<String, String> itemSectionIds;
   final Map<String, String> sectionLabels;
@@ -2017,7 +2090,7 @@ class _SourceInbox extends StatelessWidget {
                   );
                 }
                 final item = groups[section.key]![index ~/ 2];
-                return _DenseSourceRow(
+                final row = _DenseSourceRow(
                   key: rowKeys.putIfAbsent(item.id, () => GlobalKey()),
                   item: item,
                   sectionId: section.key,
@@ -2033,6 +2106,7 @@ class _SourceInbox extends StatelessWidget {
                   onTap: () => onSelected(item.id),
                   onFocus: () => onActiveChanged(item.id),
                 );
+                return rowWrapper?.call(item, row) ?? row;
               }, childCount: groups[section.key]!.length * 2 - 1),
             ),
         ],
@@ -2097,7 +2171,7 @@ class _SourceInbox extends StatelessWidget {
           );
         }
         final item = items[index];
-        return _DenseSourceRow(
+        final row = _DenseSourceRow(
           key: rowKeys.putIfAbsent(item.id, () => GlobalKey()),
           item: item,
           compact: compact,
@@ -2112,6 +2186,7 @@ class _SourceInbox extends StatelessWidget {
           onTap: () => onSelected(item.id),
           onFocus: () => onActiveChanged(item.id),
         );
+        return rowWrapper?.call(item, row) ?? row;
       },
     );
   }

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added opt-in row gestures (`SourceSwipeConfig`, `itemActionsEnabled`) backed by
+  `shipglows_swipe_actions`: swipe, long press and modified click reveal
+  mark-seen, archive and delete on the host's callbacks.
 - Show a localized in-app message when the shared workspace zoom reaches its
   configured minimum or maximum.
 - Added complete keyboard reading controls, optional account switching and chooser,
