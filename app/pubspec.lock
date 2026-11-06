@@ -325,6 +325,20 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  shipglows_swipe_actions:
+    dependency: transitive
+    description:
+      path: "../../shipglows-ui-engine/flutter/shipglows_swipe_actions"
+      relative: true
+    source: path
+    version: "0.1.0"
+  shipglows_theme:
+    dependency: transitive
+    description:
+      path: "../../shipglows-ui-engine/flutter/shipglows_theme"
+      relative: true
+    source: path
+    version: "0.1.0"
   sky_engine:
     dependency: transitive
     description: flutter
