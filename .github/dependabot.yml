@@ -17,7 +17,7 @@ updates:
       - "/demo"
       - "/packages/email_mailbox_client"
       - "/packages/newsletter_studio_flutter"
-      - "/packages/shipglows_flutter_zoom"
+      - "/packages/email_contracts"
       - "/packages/source_sidebar_flutter"
     schedule:
       interval: "monthly"
