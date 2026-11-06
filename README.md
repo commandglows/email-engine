@@ -53,6 +53,7 @@ as inbox-rendering or deliverability proof.
 
 ## Repository layout
 
+- `packages/email_contracts`: pure Dart models shared by the client and the interfaces.
 - `packages/source_sidebar_flutter`: reusable Flutter presentation package.
 - `packages/newsletter_studio_flutter`: reusable newsletter composition and
   review package with provider-neutral host hooks.

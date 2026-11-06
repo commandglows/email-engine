@@ -32,7 +32,7 @@ evidence:
   - Major tracked code, configuration, public documentation, and test paths inspected on 2026-09-03.
   - Keyboard-first email workspace verified with 19 package tests and 7 demo tests.
   - 2026-10-07: mapped authenticated support adapters, enriched Gmail controls, and their CommandGlows API contract to the app README and support specification.
-  - "2026-10-23: removed the shipglows_zoom rows; the package moved to shipglows-ui-engine/flutter, which owns its docs and proof."
+  - "2026-10-23: removed the shipglows_zoom rows; the package moved to shipglows-app-engine/flutter, which owns its docs and proof."
 next_review: "2026-12-03"
 next_step: apply this map to every code-changing documentation reflection
 ---
@@ -58,6 +58,7 @@ An unmatched tracked code area is `needs review` until this map is extended.
 | `packages/source_sidebar_flutter/test/**` | Durable source-sidebar behavior proof | `packages/source_sidebar_flutter/README.md` | Active source-sidebar spec | Accepted behavior, supported scenario, or documented proof claim changes; pure refactoring of equivalent assertions is non-impacting | `cd packages/source_sidebar_flutter && flutter test` |
 | `packages/source_sidebar_flutter/pubspec.yaml` | Package identity, SDK range, and dependencies | `packages/source_sidebar_flutter/README.md` | Root `README.md` | Consumer requirements, dependency model, installation path, or supported runtime changes | `cd packages/source_sidebar_flutter && flutter pub get && flutter analyze && flutter test` |
 | `packages/newsletter_studio_flutter/lib/**` | Newsletter composition, review, preview, delivery handoff, models, and host callbacks | `packages/newsletter_studio_flutter/README.md` | `design-system-authority.md`; active newsletter spec | Public API, shortcut, workflow, validation, delivery boundary, layout, or styling behavior changes | `cd packages/newsletter_studio_flutter && flutter analyze && flutter test` |
+| `packages/email_contracts/lib/**` | Pure Dart models shared by the mailbox client and Newsletter Studio, re-exported by the studio | `packages/email_contracts/README.md` | Root `README.md` | Consumer sessions |
 | `packages/email_mailbox_client/lib/**` | Shared mailbox client and `CentralCampaignBridgeApi` for product-update drafts through the CommandGlows bridge | `packages/email_mailbox_client/README.md` | CommandGlows `shipglows_data/technical/central-email-api-contract.md` (campaign bridge section) | Bridge route, request/response shape, idempotency, or limit changes | `cd packages/email_mailbox_client && flutter analyze && flutter test` |
 | `packages/newsletter_studio_flutter/test/**` | Durable Newsletter Studio behavior proof | `packages/newsletter_studio_flutter/README.md` | Active newsletter spec | Accepted behavior, supported scenario, or documented proof claim changes | `cd packages/newsletter_studio_flutter && flutter test` |
 | `packages/newsletter_studio_flutter/pubspec.yaml` | Package identity, SDK range, and dependencies | `packages/newsletter_studio_flutter/README.md` | Root `README.md` | Consumer requirements, dependency model, installation path, or supported runtime changes | `cd packages/newsletter_studio_flutter && flutter pub get && flutter analyze && flutter test` |

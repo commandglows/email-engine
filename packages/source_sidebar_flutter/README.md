@@ -72,7 +72,7 @@ mode with a trigger distance). Only the actions whose callback
 (`onMarkSeen`, `onArchive`, `onDelete`) is provided are shown; delete keeps
 its confirmation dialog. Use `itemActionsEnabled` to restrict these actions,
 the reader buttons and the archive shortcut to some items. The package depends
-on the sibling `shipglows-ui-engine/flutter/shipglows_swipe_actions` checkout.
+on the sibling `shipglows-app-engine/flutter/components/shipglows_swipe_actions` checkout.
 
 ## Keyboard contract
 
@@ -127,7 +127,7 @@ Ctrl/Command+- step the zoom by 5 %, and Ctrl/Command+0 resets the workspace
 to `SourceSidebarStyle.initialZoom`.
 
 The behavior is supplied by the shared `shipglows_zoom` package
-(`shipglows-ui-engine/flutter/shipglows_zoom`) so other Flutter
+(`shipglows-app-engine/flutter/components/shipglows_zoom`) so other Flutter
 applications can adopt the same tested viewport independently.
 
 Hosts can configure `minimumZoom`, `maximumZoom`, `initialZoom`, and `zoomStep`
