@@ -156,6 +156,8 @@ Future<void> compose(WidgetTester tester) async {
   );
   await tester.pumpAndSettle();
   await tester.ensureVisible(find.text('Relire et envoyer'));
+  // Scrolling only updates the geometry on the next frame; tap after it.
+  await tester.pumpAndSettle();
   await tester.tap(find.text('Relire et envoyer'));
   await tester.pumpAndSettle();
 }

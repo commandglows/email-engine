@@ -1,6 +1,7 @@
 name: newsletter_studio_flutter
 description: Provider-neutral, keyboard-first newsletter composition UI for Flutter applications.
 version: 0.1.0
+publish_to: none
 repository: https://github.com/commandglows/email-sidebar-app/tree/main/packages/newsletter_studio_flutter
 issue_tracker: https://github.com/commandglows/email-sidebar-app/issues
 

@@ -5,7 +5,6 @@ import 'package:http/testing.dart';
 import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
 import 'package:shipglows_email_engine_app/central_email_api.dart';
 import 'package:shipglows_email_engine_app/support_repository.dart';
-import 'package:shipglows_email_engine_app/support_reader.dart';
 
 void main() {
   test(

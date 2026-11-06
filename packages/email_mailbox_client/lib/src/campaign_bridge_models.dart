@@ -44,9 +44,9 @@ bool isProductUpdatesAudience(ProductUpdateAudience audience) {
   return purpose == productUpdateAudienceId;
 }
 
-final _singleLineControl = RegExp(r'[\u0000-\u001f\u007f-\u009f  ‪-‮⁦-⁩]');
+final _singleLineControl = RegExp(r'[\u0000-\u001f\u007f-\u009f  \u202A-\u202E\u2066-\u2069]');
 final _blockControl = RegExp(
-  r'[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‪-‮⁦-⁩]',
+  r'[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202A-\u202E\u2066-\u2069]',
 );
 final _providerSyntax = RegExp(r'\{\{|\}\}');
 

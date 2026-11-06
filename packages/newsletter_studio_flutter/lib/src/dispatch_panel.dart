@@ -544,22 +544,26 @@ class _DispatchPanelState extends State<DispatchPanel> {
 
   /// One target as a selectable chip after its project name: the icon shows
   /// its kind, the tooltip names the kind or why it is unavailable.
-  Widget _destinationChip(DispatchDestination d) => FilterChip(
-    visualDensity: VisualDensity.compact,
-    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    avatar: Icon(_kindIcon(d.kind), size: 18),
-    label: Text(d.label, maxLines: 1, overflow: TextOverflow.ellipsis),
-    tooltip: _destinationSubtitle(d),
-    selected: _selected.contains(d.id),
-    onSelected: _locked || !d.available
-        ? null
-        : (v) => setState(() {
-            if (v) {
-              _selected.add(d.id);
-            } else {
-              _selected.remove(d.id);
-            }
-          }),
+  Widget _destinationChip(DispatchDestination d) => Tooltip(
+    // The chip's own tooltip is dropped while it is disabled, which is exactly
+    // when the unavailability reason matters, so the tooltip wraps the chip.
+    message: _destinationSubtitle(d),
+    child: FilterChip(
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      avatar: Icon(_kindIcon(d.kind), size: 18),
+      label: Text(d.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      selected: _selected.contains(d.id),
+      onSelected: _locked || !d.available
+          ? null
+          : (v) => setState(() {
+              if (v) {
+                _selected.add(d.id);
+              } else {
+                _selected.remove(d.id);
+              }
+            }),
+    ),
   );
 
   /// Pre-triage suggestions: a tonal block, one row per candidate destination.

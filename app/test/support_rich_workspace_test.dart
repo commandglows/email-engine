@@ -176,7 +176,9 @@ void main() {
       tester.view.physicalSize = const Size(390, 844);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('Lecture enrichie'), findsOneWidget);
+      // Rich layout is the default; its toggle offers the plain-text switch.
+      expect(find.text('Texte seul'), findsOneWidget);
+      expect(find.text('Mise en page'), findsNothing);
       if (proofPath.isNotEmpty) {
         await tester.runAsync(() async {
           final boundary = tester.renderObject<RenderRepaintBoundary>(

@@ -270,7 +270,9 @@ void main() {
         const PointerScaleEvent(position: Offset(600, 400), scale: 1.1),
       );
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-      await tester.pump();
+      // The zoom is painted at once, but the layout only follows it once the
+      // gesture pauses for the reflow delay (150 ms by default).
+      await tester.pump(const Duration(milliseconds: 200));
       expect(workspaceScale(), greaterThan(1));
       expect(
         tester.getSize(
