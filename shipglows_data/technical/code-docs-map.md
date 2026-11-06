@@ -32,7 +32,7 @@ evidence:
   - Major tracked code, configuration, public documentation, and test paths inspected on 2026-09-03.
   - Keyboard-first email workspace verified with 19 package tests and 7 demo tests.
   - 2026-10-07: mapped authenticated support adapters, enriched Gmail controls, and their CommandGlows API contract to the app README and support specification.
-  - "2026-10-23: removed the shipglows_flutter_zoom rows; the package moved to shipglows-ui-engine/flutter, which owns its docs and proof."
+  - "2026-10-23: removed the shipglows_zoom rows; the package moved to shipglows-ui-engine/flutter, which owns its docs and proof."
 next_review: "2026-12-03"
 next_step: apply this map to every code-changing documentation reflection
 ---

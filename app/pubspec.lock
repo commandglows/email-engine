@@ -97,6 +97,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.8.0"
+  email_contracts:
+    dependency: transitive
+    description:
+      path: "../packages/email_contracts"
+      relative: true
+    source: path
+    version: "0.1.0"
   email_mailbox_client:
     dependency: "direct main"
     description:
@@ -318,24 +325,24 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.8"
-  shipglows_flutter_zoom:
-    dependency: transitive
-    description:
-      path: "../../shipglows-ui-engine/flutter/shipglows_flutter_zoom"
-      relative: true
-    source: path
-    version: "0.1.0"
   shipglows_swipe_actions:
     dependency: transitive
     description:
-      path: "../../shipglows-ui-engine/flutter/shipglows_swipe_actions"
+      path: "../../shipglows-app-engine/flutter/components/shipglows_swipe_actions"
       relative: true
     source: path
     version: "0.1.0"
   shipglows_theme:
     dependency: transitive
     description:
-      path: "../../shipglows-ui-engine/flutter/shipglows_theme"
+      path: "../../shipglows-app-engine/flutter/foundation/shipglows_theme"
+      relative: true
+    source: path
+    version: "0.1.0"
+  shipglows_zoom:
+    dependency: transitive
+    description:
+      path: "../../shipglows-app-engine/flutter/components/shipglows_zoom"
       relative: true
     source: path
     version: "0.1.0"

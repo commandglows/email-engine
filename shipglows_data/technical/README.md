@@ -21,7 +21,7 @@ supersedes: []
 evidence:
   - Repository code, package READMEs, tests, and validation commands inspected on 2026-09-03.
   - 2026-10-07: authenticated operator app added as a major technical surface, routed to the app guide and CommandGlows API contract.
-  - "2026-10-23: shared zoom moved to shipglows-ui-engine/flutter/shipglows_flutter_zoom; its entry now points there."
+  - "2026-10-23: shared zoom moved to shipglows-ui-engine/flutter/shipglows_zoom; its entry now points there."
 next_review: "2027-03-03"
 next_step: keep mappings aligned with code ownership
 ---
@@ -50,7 +50,7 @@ documentation routing belong here.
 | Source sidebar | Provider-neutral source and email review, keyboard processing, categories, and host callbacks | `packages/source_sidebar_flutter/README.md` |
 | Newsletter Studio and support cockpit | Provider-neutral newsletter composition and support presentation models/workspace | `packages/newsletter_studio_flutter/README.md` |
 | Central campaign bridge client | `CentralCampaignBridgeApi` for product-update drafts through the CommandGlows bridge; no approval, no provider credentials | `packages/email_mailbox_client/README.md` |
-| Shared zoom | Whole-workspace Flutter web/desktop zoom behavior, moved to `shipglows-ui-engine` | `../shipglows-ui-engine/flutter/shipglows_flutter_zoom/README.md` |
+| Shared zoom | Whole-workspace Flutter web/desktop zoom behavior, moved to `shipglows-ui-engine` | `../shipglows-ui-engine/flutter/shipglows_zoom/README.md` |
 | Demo | Synthetic integration and visual/proof host for all packages | Root `README.md` |
 | Web build | Reproducible hosted demo build only | Root `README.md` and `scripts/vercel-build.sh` |
 

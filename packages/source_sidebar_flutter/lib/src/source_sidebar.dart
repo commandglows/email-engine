@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shipglows_flutter_zoom/shipglows_flutter_zoom.dart';
+import 'package:shipglows_zoom/shipglows_zoom.dart';
 import 'package:shipglows_swipe_actions/shipglows_swipe_actions.dart';
 
 import 'source_category.dart';

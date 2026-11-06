@@ -20,7 +20,7 @@
   host definition.
 - Added bounded whole-interface zoom with Ctrl/Command+wheel and a customizable
   Ctrl/Command+0 reset command, without replacing native text scaling.
-- Reused the focused `shipglows_flutter_zoom` package as the canonical zoom
+- Reused the focused `shipglows_zoom` package as the canonical zoom
   implementation for adoption by other Flutter applications.
 - Made keyboard row navigation reclaim primary focus from toolbar controls so
   the active cursor, focus styling, and Enter activation remain synchronized.

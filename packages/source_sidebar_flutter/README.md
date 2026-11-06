@@ -126,8 +126,8 @@ ambient Flutter text scaler continues to apply. Ctrl/Command+= and
 Ctrl/Command+- step the zoom by 5 %, and Ctrl/Command+0 resets the workspace
 to `SourceSidebarStyle.initialZoom`.
 
-The behavior is supplied by the shared `shipglows_flutter_zoom` package
-(`shipglows-ui-engine/flutter/shipglows_flutter_zoom`) so other Flutter
+The behavior is supplied by the shared `shipglows_zoom` package
+(`shipglows-ui-engine/flutter/shipglows_zoom`) so other Flutter
 applications can adopt the same tested viewport independently.
 
 Hosts can configure `minimumZoom`, `maximumZoom`, `initialZoom`, and `zoomStep`

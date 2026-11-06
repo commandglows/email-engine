@@ -12,10 +12,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  shipglows_flutter_zoom:
-    path: ../../../shipglows-ui-engine/flutter/shipglows_flutter_zoom
+  shipglows_zoom:
+    path: ../../../shipglows-app-engine/flutter/components/shipglows_zoom
   shipglows_swipe_actions:
-    path: ../../../shipglows-ui-engine/flutter/shipglows_swipe_actions
+    path: ../../../shipglows-app-engine/flutter/components/shipglows_swipe_actions
 
 dev_dependencies:
   flutter_test:
