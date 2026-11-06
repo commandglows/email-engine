@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
+import 'package:email_contracts/email_contracts.dart';
 
 import 'campaign_bridge_models.dart';
 import 'central_email_api.dart';

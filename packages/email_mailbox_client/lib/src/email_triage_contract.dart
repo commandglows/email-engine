@@ -1,4 +1,4 @@
-import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
+import 'package:email_contracts/email_contracts.dart';
 
 /// Email triage contract v2, shared by every host (ShipGlows.app, ContentGlows).
 ///

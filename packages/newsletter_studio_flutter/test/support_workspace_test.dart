@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:newsletter_studio_flutter/src/support_models.dart';
+import 'package:email_contracts/email_contracts.dart';
 import 'package:newsletter_studio_flutter/src/support_workspace.dart';
 
 class FakeSupportRepository implements SupportRepository {

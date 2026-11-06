@@ -9,6 +9,8 @@ environment:
   flutter: ">=3.41.0"
 
 dependencies:
+  email_contracts:
+    path: ../email_contracts
   flutter:
     sdk: flutter
   flutter_widget_from_html_core: ^0.17.4

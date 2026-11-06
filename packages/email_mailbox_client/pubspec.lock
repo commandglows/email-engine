@@ -49,6 +49,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  email_contracts:
+    dependency: "direct main"
+    description:
+      path: "../email_contracts"
+      relative: true
+    source: path
+    version: "0.1.0"
   fake_async:
     dependency: transitive
     description:
@@ -147,13 +154,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.19.0"
-  newsletter_studio_flutter:
-    dependency: "direct main"
-    description:
-      path: "../newsletter_studio_flutter"
-      relative: true
-    source: path
-    version: "0.1.0"
   path:
     dependency: transitive
     description:
@@ -249,4 +249,4 @@ packages:
     version: "1.1.1"
 sdks:
   dart: ">=3.11.3 <4.0.0"
-  flutter: ">=3.41.0"
+  flutter: ">=3.18.0-18.0.pre.54"

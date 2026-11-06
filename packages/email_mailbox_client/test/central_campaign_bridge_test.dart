@@ -4,7 +4,7 @@ import 'package:email_mailbox_client/email_mailbox_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
+import 'package:email_contracts/email_contracts.dart';
 
 const _base = '/api/bridge/email-campaigns/shipglows_clerk';
 const _token = 'synthetic-clerk-token';

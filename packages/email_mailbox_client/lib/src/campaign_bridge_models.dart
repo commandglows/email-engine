@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
+import 'package:email_contracts/email_contracts.dart';
 
 import 'central_email_api.dart';
 

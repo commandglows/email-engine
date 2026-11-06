@@ -1,11 +1,11 @@
 import 'dart:async';
 
+import 'package:email_contracts/email_contracts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
-import 'identity_link_models.dart';
 
 /// Links this account to another app account with a one-time code.
 ///

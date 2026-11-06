@@ -1,10 +1,9 @@
 import 'dart:async';
+import 'package:email_contracts/email_contracts.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'newsletter_studio_hooks.dart';
-import 'newsletter_campaign_models.dart';
-import 'newsletter_studio_models.dart';
 import 'newsletter_studio_shortcuts.dart';
 import 'newsletter_studio_style.dart';
 

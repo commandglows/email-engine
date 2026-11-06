@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:newsletter_studio_flutter/newsletter_studio_flutter.dart';
+import 'package:email_contracts/email_contracts.dart';
 
 /// The host's analysis of one thread: the same callback as
 /// `SupportWorkspace.onAnalyzeThread`.

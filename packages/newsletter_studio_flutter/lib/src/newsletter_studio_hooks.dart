@@ -1,4 +1,4 @@
-import 'newsletter_studio_models.dart';
+import 'package:email_contracts/email_contracts.dart';
 
 typedef NewsletterDraftChanged = void Function(NewsletterDraft draft);
 typedef NewsletterDraftSave =

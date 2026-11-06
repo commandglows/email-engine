@@ -1,5 +1,5 @@
+import 'package:email_contracts/email_contracts.dart';
 import 'package:flutter/material.dart';
-import 'newsletter_campaign_models.dart';
 import 'newsletter_studio_style.dart';
 
 /// A bounded, accessible campaign list. Opening a campaign belongs to its host.

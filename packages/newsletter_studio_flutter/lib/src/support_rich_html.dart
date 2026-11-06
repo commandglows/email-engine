@@ -1,9 +1,9 @@
+import 'package:email_contracts/email_contracts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as parser;
 
-import 'support_models.dart';
 
 const _blockedElements = {
   'script',

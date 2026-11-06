@@ -9,8 +9,8 @@ dependencies:
     sdk: flutter
   crypto: ^3.0.7
   http: ^1.6.0
-  newsletter_studio_flutter:
-    path: ../newsletter_studio_flutter
+  email_contracts:
+    path: ../email_contracts
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -1,6 +1,6 @@
+import 'package:email_contracts/email_contracts.dart';
 import 'package:flutter/material.dart';
 import 'dispatch_copy.dart';
-import 'dispatch_models.dart';
 import 'email_cockpit_parts.dart';
 import 'email_cockpit_tokens.dart';
 
