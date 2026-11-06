@@ -48,7 +48,7 @@ jobs:
       - if: matrix.directory == 'app'
         run: flutter build web --release --base-href /email-engine/
       - if: matrix.directory == 'app'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: email-engine-web
           path: app/build/web
