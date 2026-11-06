@@ -38,6 +38,9 @@ jobs:
           flutter-version: 3.41.7
           channel: stable
           cache: true
+      - name: Provide shared engines
+        shell: bash
+        run: curl -fsSL https://raw.githubusercontent.com/commandglows/app-engine/main/tool/provide-engines.sh | bash -s -- .
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
@@ -61,6 +64,9 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Provide shared engines
+        shell: bash
+        run: curl -fsSL https://raw.githubusercontent.com/commandglows/app-engine/main/tool/provide-engines.sh | bash -s -- .
       - run: flutter pub get
       - name: Check formatting
         run: |
@@ -83,6 +89,9 @@ jobs:
           flutter-version: 3.41.7
           channel: stable
           cache: true
+      - name: Provide shared engines
+        shell: bash
+        run: curl -fsSL https://raw.githubusercontent.com/commandglows/app-engine/main/tool/provide-engines.sh | bash -s -- .
       - run: flutter pub get
       - name: Check formatting
         run: |
