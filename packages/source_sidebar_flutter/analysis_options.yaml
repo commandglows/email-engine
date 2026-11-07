@@ -7,4 +7,4 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
-include: package:flutter_lints/flutter.yaml
+include: package:shipglows_lints/analysis_options.yaml
